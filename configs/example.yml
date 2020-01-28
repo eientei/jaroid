@@ -1,0 +1,7 @@
+private:
+  token: "NjcxNDEzODMwMDU5OTUwMDgw.Xi8k5A.6-57SJF0gVrtCt-2dM4gKflzEto"
+  prefix: "!"
+  redis:
+    address: "127.0.0.1:6379"
+    password: ""
+    db: 0
