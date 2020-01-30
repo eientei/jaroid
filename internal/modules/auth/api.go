@@ -24,30 +24,31 @@ type RouteConfig struct {
 	RoleNames   []string
 }
 
-// Module provides implementation for authentication middleware
-type Module struct {
+// New provides module instacne
+func New() bot.Module {
+	return &module{}
+}
+
+type module struct {
 	config *bot.Configuration
 }
 
-// Initialize initialized module at start
-func (mod *Module) Initialize(config *bot.Configuration) error {
+func (mod *module) Initialize(config *bot.Configuration) error {
 	mod.config = config
 	config.Router.AppendMiddleware(mod.middlewareAuth)
 
 	return nil
 }
 
-// Configure configures module for given guild
-func (mod *Module) Configure(config *bot.Configuration, guild *discordgo.Guild) {
+func (mod *module) Configure(config *bot.Configuration, guild *discordgo.Guild) {
 
 }
 
-// Shutdown tears-down bot module
-func (mod *Module) Shutdown(config *bot.Configuration) {
+func (mod *module) Shutdown(config *bot.Configuration) {
 
 }
 
-func (mod *Module) checkPermissions(ctx *router.Context, auth *RouteConfig) bool {
+func (mod *module) checkPermissions(ctx *router.Context, auth *RouteConfig) bool {
 	for _, r := range ctx.Message.Member.Roles {
 		role, err := ctx.Session.State.Role(ctx.Message.GuildID, r)
 		if err != nil {
@@ -75,7 +76,7 @@ func (mod *Module) checkPermissions(ctx *router.Context, auth *RouteConfig) bool
 	return false
 }
 
-func (mod *Module) middlewareAuth(handler router.HandlerFunc) router.HandlerFunc {
+func (mod *module) middlewareAuth(handler router.HandlerFunc) router.HandlerFunc {
 	return func(ctx *router.Context) error {
 		raw := ctx.Route.Get(RouteConfigKey)
 

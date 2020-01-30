@@ -12,13 +12,16 @@ const (
 	emojiX        = "\xe2\x9d\x8c"
 )
 
-// Module provides implementation for automated emoji reactions and replies depending on result of command execution
-type Module struct {
+// New provides module instacne
+func New() bot.Module {
+	return &module{}
+}
+
+type module struct {
 	config *bot.Configuration
 }
 
-// Initialize initialized module at start
-func (mod *Module) Initialize(config *bot.Configuration) error {
+func (mod *module) Initialize(config *bot.Configuration) error {
 	mod.config = config
 
 	config.Router.AppendMiddleware(mod.middlewareCleanup)
@@ -26,17 +29,15 @@ func (mod *Module) Initialize(config *bot.Configuration) error {
 	return nil
 }
 
-// Configure configures module for given guild
-func (mod *Module) Configure(config *bot.Configuration, guild *discordgo.Guild) {
+func (mod *module) Configure(config *bot.Configuration, guild *discordgo.Guild) {
 
 }
 
-// Shutdown tears-down bot module
-func (mod *Module) Shutdown(config *bot.Configuration) {
+func (mod *module) Shutdown(config *bot.Configuration) {
 
 }
 
-func (mod *Module) middlewareCleanup(handler router.HandlerFunc) router.HandlerFunc {
+func (mod *module) middlewareCleanup(handler router.HandlerFunc) router.HandlerFunc {
 	return func(ctx *router.Context) error {
 		origerr := handler(ctx)
 		if origerr != nil {

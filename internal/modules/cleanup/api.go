@@ -10,22 +10,24 @@ import (
 	"github.com/eientei/jaroid/internal/router"
 )
 
-// Module provides implementation of bot module for automated bot reply removal
-type Module struct {
+// New provides module instance
+func New() bot.Module {
+	return &module{}
+}
+
+type module struct {
 	cleanupDelay time.Duration
 	config       *bot.Configuration
 }
 
-// Initialize initialized module at start
-func (mod *Module) Initialize(config *bot.Configuration) error {
+func (mod *module) Initialize(config *bot.Configuration) error {
 	mod.config = config
 	config.Router.AppendMiddleware(mod.middlewareCleanup)
 
 	return nil
 }
 
-// Configure configures module for given guild
-func (mod *Module) Configure(config *bot.Configuration, guild *discordgo.Guild) {
+func (mod *module) Configure(config *bot.Configuration, guild *discordgo.Guild) {
 	s, err := config.Repository.ConfigGet(guild.ID, "cleanup", "delay")
 	if err != nil {
 		config.Log.WithError(err).Error("Getting cleanup delay")
@@ -45,12 +47,11 @@ func (mod *Module) Configure(config *bot.Configuration, guild *discordgo.Guild) 
 	mod.cleanupDelay = time.Duration(v)
 }
 
-// Shutdown tears-down bot module
-func (mod *Module) Shutdown(config *bot.Configuration) {
+func (mod *module) Shutdown(config *bot.Configuration) {
 
 }
 
-func (mod *Module) middlewareCleanup(handler router.HandlerFunc) router.HandlerFunc {
+func (mod *module) middlewareCleanup(handler router.HandlerFunc) router.HandlerFunc {
 	return func(ctx *router.Context) error {
 		origerr := handler(ctx)
 

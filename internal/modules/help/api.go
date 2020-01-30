@@ -9,27 +9,28 @@ import (
 	"github.com/eientei/jaroid/internal/router"
 )
 
-// Module provides implementation for bot help command
-type Module struct {
+// New provides module instacne
+func New() bot.Module {
+	return &module{}
 }
 
-// Initialize initialized module at start
-func (mod *Module) Initialize(config *bot.Configuration) error {
+type module struct {
+}
+
+func (mod *module) Initialize(config *bot.Configuration) error {
 	config.Router.Group("info").On("help", "prints help", mod.commandHelp)
 	return nil
 }
 
-// Configure configures module for given guild
-func (mod *Module) Configure(config *bot.Configuration, guild *discordgo.Guild) {
+func (mod *module) Configure(config *bot.Configuration, guild *discordgo.Guild) {
 
 }
 
-// Shutdown tears-down bot module
-func (mod *Module) Shutdown(config *bot.Configuration) {
+func (mod *module) Shutdown(config *bot.Configuration) {
 
 }
 
-func (mod *Module) commandHelp(ctx *router.Context) error {
+func (mod *module) commandHelp(ctx *router.Context) error {
 	max := 0
 	for _, v := range ctx.Route.Router.Routes {
 		if len(v.Name) > max {

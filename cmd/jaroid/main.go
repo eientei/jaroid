@@ -68,11 +68,11 @@ func main() {
 		Config:  configRoot,
 		Log:     log,
 		Modules: []bot.Module{
-			&cleanup.Module{},
-			&reply.Module{},
-			&auth.Module{},
-			&help.Module{},
-			&config.Module{},
+			cleanup.New(),
+			reply.New(),
+			auth.New(),
+			help.New(),
+			config.New(),
 		},
 	})
 

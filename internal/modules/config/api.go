@@ -17,13 +17,16 @@ var (
 	ErrInvalidArgumentNumber = errors.New("invalid argument number")
 )
 
-// Module provides config module implementation
-type Module struct {
+// New provides module instacne
+func New() bot.Module {
+	return &module{}
+}
+
+type module struct {
 	config *bot.Configuration
 }
 
-// Initialize initialized module at start
-func (mod *Module) Initialize(config *bot.Configuration) error {
+func (mod *module) Initialize(config *bot.Configuration) error {
 	mod.config = config
 
 	group := config.Router.Group("config")
@@ -38,17 +41,15 @@ func (mod *Module) Initialize(config *bot.Configuration) error {
 	return nil
 }
 
-// Configure configures module for given guild
-func (mod *Module) Configure(config *bot.Configuration, guild *discordgo.Guild) {
+func (mod *module) Configure(config *bot.Configuration, guild *discordgo.Guild) {
 
 }
 
-// Shutdown tears-down bot module
-func (mod *Module) Shutdown(config *bot.Configuration) {
+func (mod *module) Shutdown(config *bot.Configuration) {
 
 }
 
-func (mod *Module) configGet(ctx *router.Context) error {
+func (mod *module) configGet(ctx *router.Context) error {
 	if len(ctx.Args) < 2 {
 		return ErrInvalidArgumentNumber
 	}
@@ -67,7 +68,7 @@ func (mod *Module) configGet(ctx *router.Context) error {
 	return ctx.ReplyEmbed("```\n" + value + "```")
 }
 
-func (mod *Module) configSet(ctx *router.Context) error {
+func (mod *module) configSet(ctx *router.Context) error {
 	if len(ctx.Args) < 3 {
 		return ErrInvalidArgumentNumber
 	}
@@ -85,7 +86,7 @@ func (mod *Module) configSet(ctx *router.Context) error {
 	return nil
 }
 
-func (mod *Module) configDel(ctx *router.Context) error {
+func (mod *module) configDel(ctx *router.Context) error {
 	if len(ctx.Args) < 2 {
 		return ErrInvalidArgumentNumber
 	}
@@ -95,7 +96,7 @@ func (mod *Module) configDel(ctx *router.Context) error {
 	return mod.config.Client.Del(key).Err()
 }
 
-func (mod *Module) configList(ctx *router.Context) error {
+func (mod *module) configList(ctx *router.Context) error {
 	prefix := ctx.Message.GuildID + "."
 	key := ctx.Message.GuildID + ".*"
 	mask := ctx.Args.Get(1)
