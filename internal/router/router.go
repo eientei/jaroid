@@ -130,6 +130,28 @@ func nameMatcher(name string) MatcherFunc {
 	}
 }
 
+func nameAliasMatcher(name string, alias []string) MatcherFunc {
+	return func(raw string) bool {
+		parts := strings.Split(raw, " ")
+
+		if len(parts) == 0 {
+			return false
+		}
+
+		if parts[0] == name {
+			return true
+		}
+
+		for _, a := range alias {
+			if parts[0] == a {
+				return true
+			}
+		}
+
+		return false
+	}
+}
+
 func regexMatcher(reg *regexp.Regexp) MatcherFunc {
 	return reg.MatchString
 }
@@ -137,6 +159,11 @@ func regexMatcher(reg *regexp.Regexp) MatcherFunc {
 // On creates new route in given group using name matcher
 func (router *Router) On(group, name, desc string, handler HandlerFunc) (route *Route) {
 	return router.Group(group).On(name, desc, handler)
+}
+
+// OnAlias creates new route in given group using alias name matcher
+func (router *Router) OnAlias(group, name, desc string, alias []string, handler HandlerFunc) (route *Route) {
+	return router.Group(group).OnAlias(name, desc, alias, handler)
 }
 
 // OnRegex creates new route in given group using regex matcher

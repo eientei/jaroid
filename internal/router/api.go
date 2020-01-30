@@ -79,6 +79,23 @@ func (ctx *Context) ReplyEmbed(desc string) (err error) {
 	return
 }
 
+// ReplyEmbedCustom replies to original message with custom embed
+func (ctx *Context) ReplyEmbedCustom(embed *discordgo.MessageEmbed) (err error) {
+	var msg *discordgo.Message
+	msg, err = ctx.Session.ChannelMessageSendEmbed(ctx.Message.ChannelID, embed)
+
+	if err != nil {
+		return
+	}
+
+	ctx.Route.Replies[msg.ID] = &Reply{
+		Request:  ctx.Message,
+		Response: msg,
+	}
+
+	return
+}
+
 // Reply replies to original message
 func (ctx *Context) Reply(desc string) (err error) {
 	var msg *discordgo.Message
@@ -112,6 +129,7 @@ func NewRouter() *Router {
 // Route describes command route
 type Route struct {
 	Name        string
+	Alias       []string
 	Description string
 	Matcher     MatcherFunc
 	Handler     HandlerFunc

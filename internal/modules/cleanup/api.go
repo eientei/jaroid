@@ -24,6 +24,8 @@ func (mod *module) Initialize(config *bot.Configuration) error {
 	mod.config = config
 	config.Router.AppendMiddleware(mod.middlewareCleanup)
 
+	go mod.start()
+
 	return nil
 }
 

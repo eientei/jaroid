@@ -11,6 +11,7 @@ import (
 	"github.com/eientei/jaroid/internal/modules/cleanup"
 	"github.com/eientei/jaroid/internal/modules/config"
 	"github.com/eientei/jaroid/internal/modules/help"
+	"github.com/eientei/jaroid/internal/modules/nico"
 	"github.com/eientei/jaroid/internal/modules/reply"
 	"github.com/go-redis/redis/v7"
 	"github.com/sirupsen/logrus"
@@ -73,6 +74,7 @@ func main() {
 			auth.New(),
 			help.New(),
 			config.New(),
+			nico.New(),
 		},
 	})
 

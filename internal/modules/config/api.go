@@ -3,6 +3,7 @@ package config
 
 import (
 	"errors"
+	"strconv"
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
@@ -29,14 +30,16 @@ type module struct {
 func (mod *module) Initialize(config *bot.Configuration) error {
 	mod.config = config
 
-	group := config.Router.Group("config")
+	group := config.Router.Group("config").SetDescription("internal configuration")
 	group.Set(auth.RouteConfigKey, &auth.RouteConfig{
 		Permissions: discordgo.PermissionAdministrator,
 	})
+
 	group.On("config.get", "gets config value", mod.configGet)
 	group.On("config.set", "sets config value", mod.configSet)
 	group.On("config.del", "deletes config value", mod.configDel)
 	group.On("config.list", "lists config values", mod.configList)
+	group.On("config.tasks", "lists task stats", mod.configTasks)
 
 	return nil
 }
@@ -153,6 +156,49 @@ func (mod *module) configList(ctx *router.Context) error {
 		}
 
 		_, _ = buf.WriteString(v)
+		_, _ = buf.WriteString("\n")
+	}
+
+	buf.WriteString("```")
+
+	return ctx.ReplyEmbed(buf.String())
+}
+
+func (mod *module) configTasks(ctx *router.Context) error {
+	slice, err := mod.config.Client.Keys("task.*").Result()
+	if err != nil {
+		return err
+	}
+
+	max := 0
+
+	for _, s := range slice {
+		if len(s) > max {
+			max = len(s)
+		}
+	}
+
+	buf := &strings.Builder{}
+
+	buf.WriteString("```\n")
+
+	for _, s := range slice {
+		_, _ = buf.WriteString(strings.Repeat(" ", max-len(s)))
+		_, _ = buf.WriteString(s)
+		_, _ = buf.WriteString(": ")
+
+		var v int64
+
+		v, err = mod.config.Client.XLen(s).Result()
+		if err == redis.Nil {
+			err = nil
+		}
+
+		if err != nil {
+			return err
+		}
+
+		_, _ = buf.WriteString(strconv.FormatInt(v, 10))
 		_, _ = buf.WriteString("\n")
 	}
 

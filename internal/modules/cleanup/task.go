@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/eientei/jaroid/internal/bot"
 	"github.com/eientei/jaroid/internal/model"
 )
 
@@ -26,9 +25,9 @@ func (Task) Name() string {
 	return "message"
 }
 
-func ackTask(config *bot.Configuration, task model.Task, id string, err error) {
+func (mod *module) ackTask(task model.Task, id string, err error) {
 	if err != nil {
-		config.Log.WithError(err).Error("Dequeuing")
+		mod.config.Log.WithError(err).Error("Dequeuing")
 
 		if r, ok := err.(*discordgo.RESTError); ok && r.Response.StatusCode == 404 {
 			err = nil
@@ -36,30 +35,27 @@ func ackTask(config *bot.Configuration, task model.Task, id string, err error) {
 	}
 
 	if err == nil {
-		err = config.Repository.TaskAck(task, id)
+		err = mod.config.Repository.TaskAck(task, id)
 		if err != nil {
-			config.Log.WithError(err).Error("Acking task", id)
+			mod.config.Log.WithError(err).Error("Acking task", id)
 		}
 	}
 }
 
-// Start starts cleaning up messages
-func Start(config *bot.Configuration) {
-	go func() {
-		task := &Task{}
+func (mod *module) start() {
+	task := &Task{}
 
-		for {
-			id, err := config.Repository.TaskDequeue(task, time.Second)
-			if err != nil {
-				config.Log.WithError(err).Error("Dequeuing")
-			}
-
-			if id == "" {
-				continue
-			}
-
-			err = config.Discord.ChannelMessageDelete(task.ChannelID, task.MessageID)
-			ackTask(config, task, id, err)
+	for {
+		id, err := mod.config.Repository.TaskDequeue(task, time.Second)
+		if err != nil {
+			mod.config.Log.WithError(err).Error("Dequeuing")
 		}
-	}()
+
+		if id == "" {
+			continue
+		}
+
+		err = mod.config.Discord.ChannelMessageDelete(task.ChannelID, task.MessageID)
+		mod.ackTask(task, id, err)
+	}
 }

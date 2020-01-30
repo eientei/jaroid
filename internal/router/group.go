@@ -8,6 +8,7 @@ import (
 // Group groups a number of routes
 type Group struct {
 	Name        string
+	Description string
 	Routes      []*Route
 	Middleware  []MiddlewareFunc
 	RouteSorter RouteSorterFunc
@@ -15,9 +16,25 @@ type Group struct {
 	Data        map[string]interface{}
 }
 
+// SetDescription sets description for group
+func (group *Group) SetDescription(description string) *Group {
+	group.Description = description
+	return group
+}
+
 // On adds route to group using name matcher
 func (group *Group) On(name, desc string, handler HandlerFunc) (route *Route) {
 	route = group.Router.Route(nameMatcher(name), name, desc, handler)
+
+	group.AddRoute(route)
+
+	return route
+}
+
+// OnAlias adds route to group using alias name matcher
+func (group *Group) OnAlias(name, desc string, alias []string, handler HandlerFunc) (route *Route) {
+	route = group.Router.Route(nameAliasMatcher(name, alias), name, desc, handler)
+	route.Alias = alias
 
 	group.AddRoute(route)
 
