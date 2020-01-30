@@ -52,3 +52,14 @@ func (group *Group) AddRoute(route *Route) {
 		route.Groups = append(route.Groups, group)
 	}
 }
+
+// Set sets group data entry
+func (group *Group) Set(k string, v interface{}) *Group {
+	group.Data[k] = v
+	return group
+}
+
+// Get returns group data entry
+func (group *Group) Get(k string) interface{} {
+	return group.Data[k]
+}

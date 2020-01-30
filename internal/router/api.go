@@ -37,7 +37,64 @@ type MatcherFunc func(raw string) bool
 type MiddlewareFunc func(handler HandlerFunc) HandlerFunc
 
 // HandlerFunc implements command execution
-type HandlerFunc func(session *discordgo.Session, msg *discordgo.Message, route *Route, args Args) error
+type HandlerFunc func(ctx *Context) error
+
+// Context simplifies request handling
+type Context struct {
+	Session *discordgo.Session
+	Message *discordgo.Message
+	Route   *Route
+	Args    Args
+}
+
+// Reply keeps track of user requests and bot replies
+type Reply struct {
+	Request  *discordgo.Message
+	Response *discordgo.Message
+}
+
+// React reacts to original message with emoji
+func (ctx *Context) React(emoji string) (err error) {
+	err = ctx.Session.MessageReactionAdd(ctx.Message.ChannelID, ctx.Message.ID, emoji)
+
+	return
+}
+
+// ReplyEmbed replies to original message with embed
+func (ctx *Context) ReplyEmbed(desc string) (err error) {
+	var msg *discordgo.Message
+	msg, err = ctx.Session.ChannelMessageSendEmbed(ctx.Message.ChannelID, &discordgo.MessageEmbed{
+		Description: desc,
+	})
+
+	if err != nil {
+		return
+	}
+
+	ctx.Route.Replies[msg.ID] = &Reply{
+		Request:  ctx.Message,
+		Response: msg,
+	}
+
+	return
+}
+
+// Reply replies to original message
+func (ctx *Context) Reply(desc string) (err error) {
+	var msg *discordgo.Message
+	msg, err = ctx.Session.ChannelMessageSend(ctx.Message.ChannelID, desc)
+
+	if err != nil {
+		return
+	}
+
+	ctx.Route.Replies[msg.ID] = &Reply{
+		Request:  ctx.Message,
+		Response: msg,
+	}
+
+	return
+}
 
 // NewRouter returns new router instance
 func NewRouter() *Router {
@@ -63,4 +120,27 @@ type Route struct {
 	Groups      []*Group
 	Router      *Router
 	Data        map[string]interface{}
+	Replies     map[string]*Reply
+}
+
+// Set sets route config value
+func (route *Route) Set(k string, v interface{}) *Route {
+	route.Data[k] = v
+
+	return route
+}
+
+// Get returns route (or any of parent groups) config value
+func (route *Route) Get(k string) interface{} {
+	if v, ok := route.Data[k]; ok {
+		return v
+	}
+
+	for _, g := range route.Groups {
+		if v, ok := g.Data[k]; ok {
+			return v
+		}
+	}
+
+	return nil
 }

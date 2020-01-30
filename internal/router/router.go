@@ -67,7 +67,12 @@ func (router *Router) Dispatch(session *discordgo.Session, prefix, userID string
 				}
 			}
 
-			err = r.Baked(session, msg, r, args)
+			err = r.Baked(&Context{
+				Session: session,
+				Message: msg,
+				Route:   r,
+				Args:    args,
+			})
 
 			return
 		}
@@ -109,6 +114,7 @@ func (router *Router) Route(matcher MatcherFunc, name, desc string, handler Hand
 			Middleware:  nil,
 			Router:      router,
 			Data:        make(map[string]interface{}),
+			Replies:     make(map[string]*Reply),
 		}
 		router.Routes[name] = route
 	}
@@ -141,4 +147,14 @@ func (router *Router) OnRegex(group, name, desc string, reg *regexp.Regexp, hand
 // OnCustom creates new route in given group using custom matcher
 func (router *Router) OnCustom(group, name, desc string, matcher MatcherFunc, handler HandlerFunc) (route *Route) {
 	return router.Group(group).OnCustom(name, desc, matcher, handler)
+}
+
+// AppendMiddleware append middleware to end of the chain
+func (router *Router) AppendMiddleware(middleware MiddlewareFunc) {
+	router.Middleware = append(router.Middleware, middleware)
+}
+
+// PrependMiddleware append middleware to beginning of the chain
+func (router *Router) PrependMiddleware(middleware MiddlewareFunc) {
+	router.Middleware = append([]MiddlewareFunc{middleware}, router.Middleware...)
 }

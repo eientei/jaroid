@@ -18,8 +18,9 @@ type Private struct {
 
 // Server specific part of configuration
 type Server struct {
-	Admins []string `yaml:"admins"`
-	Prefix string   `yaml:"prefix"`
+	GuildID string   `yaml:"id"`
+	Admins  []string `yaml:"admins"`
+	Prefix  string   `yaml:"prefix"`
 }
 
 // Root of configuration

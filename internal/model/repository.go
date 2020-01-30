@@ -3,27 +3,31 @@ package model
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"strconv"
 	"time"
 
 	"github.com/go-redis/redis/v7"
 )
 
-type repository struct {
-	client *redis.Client
-	groups map[string]bool
+// Repository provides methods to get and set configuration, enqueue and dequeue tasks
+type Repository struct {
+	Client *redis.Client
+	Groups map[string]bool
 }
 
-func (repo *repository) ConfigSet(guildID, scope, key, value string) error {
+// ConfigSet sets config value for given guild
+func (repo *Repository) ConfigSet(guildID, scope, key, value string) error {
 	fullkey := fmt.Sprintf("%s.%s.%s", guildID, scope, key)
-	cmd := repo.client.Set(fullkey, value, 0)
+	cmd := repo.Client.Set(fullkey, value, 0)
 
 	return cmd.Err()
 }
 
-func (repo *repository) ConfigGet(guildID, scope, key string) (s string, err error) {
+// ConfigGet returns config value for given guild
+func (repo *Repository) ConfigGet(guildID, scope, key string) (s string, err error) {
 	fullkey := fmt.Sprintf("%s.%s.%s", guildID, scope, key)
-	s, err = repo.client.Get(fullkey).Result()
+	s, err = repo.Client.Get(fullkey).Result()
 
 	if err == redis.Nil {
 		err = nil
@@ -32,15 +36,16 @@ func (repo *repository) ConfigGet(guildID, scope, key string) (s string, err err
 	return
 }
 
-func (repo *repository) TaskEnqueue(scope, name string, delay, timeout time.Duration, task *Task) error {
-	fkey := fmt.Sprintf("task.%s.%s", scope, name)
+// TaskEnqueue schedules task for execution
+func (repo *Repository) TaskEnqueue(task Task, delay, timeout time.Duration) error {
+	fkey := fmt.Sprintf("task.%s.%s", task.Scope(), task.Name())
 
-	bs, err := json.Marshal(task.Data)
+	bs, err := json.Marshal(task)
 	if err != nil {
 		return err
 	}
 
-	return repo.client.XAdd(&redis.XAddArgs{
+	return repo.Client.XAdd(&redis.XAddArgs{
 		Stream: fkey,
 		Values: map[string]interface{}{
 			"created": time.Now().Unix(),
@@ -51,107 +56,100 @@ func (repo *repository) TaskEnqueue(scope, name string, delay, timeout time.Dura
 	}).Err()
 }
 
-func (repo *repository) processMessage(fkey string, m *redis.XMessage) (task *Task, err error) {
-	var created, delay, timeout int64
+func (repo *Repository) processMessage(
+	fkey string,
+	m *redis.XMessage,
+	task Task,
+	inwait int64,
+) (minwait int64, id string, err error) {
+	minwait = inwait
 
+	var created, delay, timeout int64
 	if raw, ok := m.Values["created"].(string); ok {
 		created, err = strconv.ParseInt(raw, 10, 64)
 		if err != nil {
-			return
+			return minwait, "", nil
 		}
 	}
 
 	if raw, ok := m.Values["delay"].(string); ok {
 		delay, err = strconv.ParseInt(raw, 10, 64)
 		if err != nil {
-			return
+			return minwait, "", nil
 		}
 	}
 
 	if raw, ok := m.Values["timeout"].(string); ok {
 		timeout, err = strconv.ParseInt(raw, 10, 64)
 		if err != nil {
-			return
+			return minwait, "", nil
 		}
 	}
 
 	passed := int64(time.Since(time.Unix(created, 0)))
 	if passed < delay {
-		return nil, nil
+		if delay-passed < minwait {
+			minwait = delay - passed
+		}
+
+		return minwait, "", nil
 	}
 
 	passed -= delay
 	if timeout > 0 && passed > timeout {
-		tx := repo.client.TxPipeline()
+		tx := repo.Client.TxPipeline()
 		tx.XAck(fkey, "tasks", m.ID)
 		tx.XDel(fkey, m.ID)
 
 		_, err = tx.Exec()
 		if err != nil {
-			return nil, err
+			return 0, "", err
 		}
 
-		return nil, nil
+		return minwait, "", nil
 	}
 
 	bs, ok := m.Values["data"].(string)
 	if !ok {
-		return nil, nil
+		return minwait, "", nil
 	}
 
-	task = &Task{
-		ID:   m.ID,
-		Data: make(map[string]interface{}),
-	}
-
-	err = json.Unmarshal([]byte(bs), &task.Data)
+	err = json.Unmarshal([]byte(bs), &task)
 	if err != nil {
-		return nil, err
+		return minwait, "", nil
 	}
 
-	return task, nil
+	return minwait, m.ID, nil
 }
 
-func (repo *repository) TaskDequeue(scope, name string, block time.Duration) (task *Task, err error) {
-	fkey := fmt.Sprintf("task.%s.%s", scope, name)
-
-	if _, ok := repo.groups[fkey]; !ok {
-		repo.client.XGroupCreateMkStream(fkey, "tasks", "0")
-		repo.groups[fkey] = true
-	}
-
-	res, err := repo.client.XReadGroup(&redis.XReadGroupArgs{
-		Group:    "tasks",
-		Consumer: "dequeue",
-		Streams:  []string{fkey, "0"},
-		Block:    0,
-		Count:    1,
-	}).Result()
-	if err == redis.Nil {
-		err = nil
-	}
-
-	if err != nil {
-		return nil, err
-	}
+func (repo *Repository) processMessages(
+	fkey string,
+	res []redis.XStream,
+	task Task,
+) (minwait int64, id string, err error) {
+	minwait = int64(math.MaxInt64)
 
 	for _, s := range res {
 		for _, m := range s.Messages {
-			task, err = repo.processMessage(fkey, &m)
-			if err != nil {
-				return nil, err
-			}
-
-			if task != nil {
-				return task, nil
+			minwait, id, err = repo.processMessage(fkey, &m, task, minwait)
+			if err != nil || id != "" {
+				return
 			}
 		}
 	}
 
-	res, err = repo.client.XReadGroup(&redis.XReadGroupArgs{
+	return minwait, "", nil
+}
+
+func (repo *Repository) readMessages(
+	fkey, start string,
+	task Task,
+	block time.Duration,
+) (minwait int64, id string, err error) {
+	res, err := repo.Client.XReadGroup(&redis.XReadGroupArgs{
 		Group:    "tasks",
 		Consumer: "dequeue",
-		Streams:  []string{fkey, ">"},
+		Streams:  []string{fkey, start},
 		Block:    block,
 	}).Result()
 	if err == redis.Nil {
@@ -159,31 +157,64 @@ func (repo *repository) TaskDequeue(scope, name string, block time.Duration) (ta
 	}
 
 	if err != nil {
-		return nil, err
+		return minwait, "", err
 	}
 
-	for _, s := range res {
-		for _, m := range s.Messages {
-			task, err = repo.processMessage(fkey, &m)
-			if err != nil {
-				return nil, err
-			}
-		}
+	return repo.processMessages(fkey, res, task)
+}
+
+func (repo *Repository) ensureGroup(fkey string) {
+	if _, ok := repo.Groups[fkey]; !ok {
+		repo.Client.XGroupCreateMkStream(fkey, "tasks", "0")
+		repo.Groups[fkey] = true
+	}
+}
+
+// TaskDequeue retreives next task
+func (repo *Repository) TaskDequeue(task Task, block time.Duration) (id string, err error) {
+	fkey := fmt.Sprintf("task.%s.%s", task.Scope(), task.Name())
+
+	repo.ensureGroup(fkey)
+
+	var minwait int64
+
+	minwait, id, err = repo.readMessages(fkey, "0", task, block)
+	if err != nil || id != "" {
+		return
+	}
+
+	pending := false
+
+	if minwait != math.MaxInt64 && (minwait < int64(block) || block == 0) {
+		block = time.Duration(minwait)
+		pending = true
+	}
+
+	minwait, id, err = repo.readMessages(fkey, ">", task, block)
+	if err != nil || id != "" {
+		return
+	}
+
+	if !pending && minwait != math.MaxInt64 && minwait < int64(block) {
+		time.Sleep(time.Duration(minwait))
+
+		pending = true
+	}
+
+	if pending {
+		_, id, err = repo.readMessages(fkey, "0", task, 0)
 	}
 
 	return
 }
 
-func (repo *repository) TaskAck(scope, name string, task *Task) (err error) {
-	if task == nil {
-		return nil
-	}
+// TaskAck confirms task as successfully executed
+func (repo *Repository) TaskAck(task Task, id string) (err error) {
+	fkey := fmt.Sprintf("task.%s.%s", task.Scope(), task.Name())
 
-	fkey := fmt.Sprintf("task.%s.%s", scope, name)
-
-	tx := repo.client.TxPipeline()
-	tx.XAck(fkey, "tasks", task.ID)
-	tx.XDel(fkey, task.ID)
+	tx := repo.Client.TxPipeline()
+	tx.XAck(fkey, "tasks", id)
+	tx.XDel(fkey, id)
 	_, err = tx.Exec()
 
 	return

@@ -1,25 +1,29 @@
 package main
 
 import (
-	"context"
 	"flag"
 	"os"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/eientei/jaroid/internal/bot"
-	"github.com/eientei/jaroid/internal/config"
+	yamlConfig "github.com/eientei/jaroid/internal/config"
+	"github.com/eientei/jaroid/internal/modules/auth"
+	"github.com/eientei/jaroid/internal/modules/cleanup"
+	"github.com/eientei/jaroid/internal/modules/config"
+	"github.com/eientei/jaroid/internal/modules/help"
+	"github.com/eientei/jaroid/internal/modules/reply"
 	"github.com/go-redis/redis/v7"
 	"github.com/sirupsen/logrus"
 )
 
-func readConfig(log *logrus.Logger, configPath string) *config.Root {
+func readConfig(log *logrus.Logger, configPath string) *yamlConfig.Root {
 	configFile, err := os.OpenFile(configPath, os.O_CREATE|os.O_RDONLY, 0644)
 	if err != nil {
 		flag.PrintDefaults()
 		log.Fatal(err)
 	}
 
-	c, err := config.Read(configFile)
+	c, err := yamlConfig.Read(configFile)
 	if err != nil {
 		flag.PrintDefaults()
 		log.Fatal(err)
@@ -58,14 +62,25 @@ func main() {
 		DB:       configRoot.Private.Redis.DB,
 	})
 
-	b := bot.NewBot(bot.Options{
+	b, err := bot.NewBot(bot.Options{
 		Discord: dg,
 		Client:  client,
 		Config:  configRoot,
 		Log:     log,
+		Modules: []bot.Module{
+			&cleanup.Module{},
+			&reply.Module{},
+			&auth.Module{},
+			&help.Module{},
+			&config.Module{},
+		},
 	})
 
-	err = b.Serve(context.Background())
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	err = b.Serve()
 	if err != nil {
 		log.Fatal(err)
 	}
