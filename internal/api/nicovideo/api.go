@@ -88,17 +88,21 @@ type Client struct {
 
 // Filter search
 type Filter struct {
-	Field    Field
-	Operator Operator
-	Values   []string
+	Field    Field    `json:"field"`
+	Operator Operator `json:"operator"`
+	Values   []string `json:"values"`
 }
 
 // Search query
 type Search struct {
-	Fields  []Field  // Return fields
-	Filters []Filter // Query filters
-	Offset  int      // Offset in entries
-	Limit   int      // Limit in entries
+	Query         string        `json:"query"`          // Search query
+	SortField     Field         `json:"sort_field"`     // Sort field
+	SortDirection SortDirection `json:"sort_direction"` // Sort directions
+	Targets       []Field       `json:"targets"`        // Targets to search in
+	Fields        []Field       `json:"fields"`         // Return fields
+	Filters       []Filter      `json:"filters"`        // Query filters
+	Offset        int           `json:"offset"`         // Offset in entries
+	Limit         int           `json:"limit"`          // Limit in entries
 }
 
 // SearchResult from search
@@ -219,17 +223,11 @@ func (client *Client) postprocessSearch(res *SearchResult) {
 }
 
 // Search using given options
-func (client *Client) Search(
-	query string,
-	sortField Field,
-	sortDirection SortDirection,
-	targets []Field,
-	opts *Search,
-) (res *SearchResult, err error) {
+func (client *Client) Search(opts *Search) (res *SearchResult, err error) {
 	values := &url.Values{}
-	values.Set("q", query)
-	values.Set("targets", strings.Join(fields(targets), ","))
-	values.Set("_sort", string(sortDirection)+string(sortField))
+	values.Set("q", opts.Query)
+	values.Set("targets", strings.Join(fields(opts.Targets), ","))
+	values.Set("_sort", string(opts.SortDirection)+string(opts.SortField))
 
 	if opts != nil {
 		if opts.Offset > 0 {

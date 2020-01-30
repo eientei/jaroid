@@ -97,8 +97,7 @@ func (ctx *Context) ReplyEmbedCustom(embed *discordgo.MessageEmbed) (err error) 
 }
 
 // Reply replies to original message
-func (ctx *Context) Reply(desc string) (err error) {
-	var msg *discordgo.Message
+func (ctx *Context) Reply(desc string) (msg *discordgo.Message, err error) {
 	msg, err = ctx.Session.ChannelMessageSend(ctx.Message.ChannelID, desc)
 
 	if err != nil {

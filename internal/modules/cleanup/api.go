@@ -16,11 +16,12 @@ func New() bot.Module {
 }
 
 type module struct {
-	cleanupDelay time.Duration
+	cleanupDelay map[string]time.Duration
 	config       *bot.Configuration
 }
 
 func (mod *module) Initialize(config *bot.Configuration) error {
+	mod.cleanupDelay = make(map[string]time.Duration)
 	mod.config = config
 	config.Router.AppendMiddleware(mod.middlewareCleanup)
 
@@ -46,7 +47,7 @@ func (mod *module) Configure(config *bot.Configuration, guild *discordgo.Guild) 
 		return
 	}
 
-	mod.cleanupDelay = time.Duration(v)
+	mod.cleanupDelay[guild.ID] = time.Duration(v)
 }
 
 func (mod *module) Shutdown(config *bot.Configuration) {
@@ -58,12 +59,12 @@ func (mod *module) middlewareCleanup(handler router.HandlerFunc) router.HandlerF
 		origerr := handler(ctx)
 
 		for k, r := range ctx.Route.Replies {
-			if mod.cleanupDelay > 0 {
+			if mod.cleanupDelay[ctx.Message.GuildID] > 0 {
 				err := mod.config.Repository.TaskEnqueue(&Task{
 					GuildID:   r.Response.GuildID,
 					ChannelID: r.Response.ChannelID,
 					MessageID: r.Response.ID,
-				}, mod.cleanupDelay, 0)
+				}, mod.cleanupDelay[ctx.Message.GuildID], 0)
 				if err != nil {
 					mod.config.Log.WithError(err).WithField("response", r.Response).Error("Enqueueing response cleanup")
 				}
