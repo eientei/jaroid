@@ -8,16 +8,20 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/eientei/jaroid/internal/api/nicovideo"
 	"github.com/eientei/jaroid/internal/bot"
+	"github.com/eientei/jaroid/internal/modules/auth"
 	"github.com/eientei/jaroid/internal/router"
 )
 
 var (
 	// ErrNothingFound is returned when no content found
 	ErrNothingFound = errors.New("nothing found")
+	// ErrInvalidArgumentNumber is returned on invalid argument number
+	ErrInvalidArgumentNumber = errors.New("invalid argument number")
 )
 
 // Used emojis
@@ -34,13 +38,15 @@ const (
 // New provides module instacne
 func New() bot.Module {
 	return &module{
-		client: nicovideo.New(),
+		client:  nicovideo.New(),
+		servers: make(map[string]bool),
 	}
 }
 
 type module struct {
-	config *bot.Configuration
-	client *nicovideo.Client
+	config  *bot.Configuration
+	client  *nicovideo.Client
+	servers map[string]bool
 }
 
 func (mod *module) Initialize(config *bot.Configuration) error {
@@ -52,17 +58,198 @@ func (mod *module) Initialize(config *bot.Configuration) error {
 
 	group.OnAlias("nico.search", "search for video", []string{"nico"}, mod.commandSearch)
 	group.On("nico.list", "search videos list", mod.commandList)
+	group.On("nico.feed", "start nico feed", mod.commandFeed).Set(auth.RouteConfigKey, &auth.RouteConfig{
+		Permissions: discordgo.PermissionAdministrator,
+	})
 	group.On("nico.help", "prints help on search terms", mod.commandHelp)
+
+	go mod.backgroundFeed()
 
 	return nil
 }
 
 func (mod *module) Configure(config *bot.Configuration, guild *discordgo.Guild) {
-
+	mod.servers[guild.ID] = true
 }
 
 func (mod *module) Shutdown(config *bot.Configuration) {
 
+}
+
+func (mod *module) backgroundServer(s, name string) {
+	feed := &feed{}
+
+	t, err := mod.config.Repository.ConfigGet(s, "nico", name)
+	if err != nil {
+		mod.config.Log.WithError(err).Error("Getting nico feed key", s, name)
+		return
+	}
+
+	if t == "" {
+		mod.config.Log.WithError(err).Error("Empty nico feed key", s, name)
+		return
+	}
+
+	err = json.Unmarshal([]byte(t), feed)
+	if err != nil {
+		mod.config.Log.WithError(err).Error("Unmarshaling nico feed key", s, name)
+		return
+	}
+
+	err = mod.executeFeed(feed)
+	if err != nil {
+		mod.config.Log.WithError(err).Error("Executing nico feed key", s, name)
+		return
+	}
+
+	bs, err := json.Marshal(feed)
+	if err != nil {
+		mod.config.Log.WithError(err).Error("Marshaling nico feed key", s, name)
+		return
+	}
+
+	err = mod.config.Repository.ConfigSet(s, "nico", name, string(bs))
+	if err != nil {
+		mod.config.Log.WithError(err).Error("Setting nico feed key", s, name)
+		return
+	}
+}
+
+func (mod *module) backgroundFeed() {
+	for {
+		for s := range mod.servers {
+			prefix := s + ".nico."
+
+			rs, err := mod.config.Client.Keys(prefix + "*").Result()
+			if err != nil {
+				continue
+			}
+
+			for _, name := range rs {
+				name = strings.TrimPrefix(name, prefix)
+				mod.backgroundServer(s, name)
+			}
+		}
+
+		time.Sleep(time.Minute)
+	}
+}
+
+type feed struct {
+	ChannelID string             `json:"channel_id"`
+	Executed  time.Time          `json:"executed"`
+	Period    time.Duration      `json:"period"`
+	Last      time.Time          `json:"last"`
+	Query     string             `json:"query"`
+	Targets   []nicovideo.Field  `json:"targets"`
+	Filters   []nicovideo.Filter `json:"filters"`
+}
+
+func (mod *module) executeFeed(feed *feed) error {
+	if time.Since(feed.Executed) < feed.Period {
+		return nil
+	}
+
+	search := &nicovideo.Search{}
+
+	search.Query = feed.Query
+	search.Targets = feed.Targets
+	search.Fields = []nicovideo.Field{
+		nicovideo.FieldContentID,
+		nicovideo.FieldTags,
+		nicovideo.FieldStartTime,
+		nicovideo.FieldLengthSeconds,
+		nicovideo.FieldViewCounter,
+		nicovideo.FieldMylistCounter,
+	}
+	search.Filters = feed.Filters
+	search.SortField = nicovideo.FieldStartTime
+	search.SortDirection = nicovideo.SortDesc
+	search.Limit = 10
+
+	if !feed.Last.IsZero() {
+		search.Filters = append(search.Filters, nicovideo.Filter{
+			Field:    nicovideo.FieldStartTime,
+			Operator: nicovideo.OperatorGTE,
+			Values:   []string{feed.Last.Add(time.Second).Format(time.RFC3339)},
+		})
+	}
+
+	res, err := mod.client.Search(search)
+	if err != nil {
+		return err
+	}
+
+	for i := len(res.Data) - 1; i >= 0; i-- {
+		r := res.Data[i]
+
+		_, err = mod.config.Discord.ChannelMessageSend(feed.ChannelID, mod.singleRender(r))
+		if err != nil {
+			return err
+		}
+
+		feed.Last = r.StartTime
+	}
+
+	if feed.Last.IsZero() {
+		feed.Last = time.Now()
+	}
+
+	feed.Executed = time.Now()
+
+	return nil
+}
+
+func (mod *module) commandFeed(ctx *router.Context) error {
+	if len(ctx.Args) < 4 {
+		return ErrInvalidArgumentNumber
+	}
+
+	name, period, channelID := ctx.Args[1], ctx.Args[2], ctx.Args[3]
+	ctx.Args = ctx.Args[3:]
+
+	channel, err := ctx.Session.Channel(channelID)
+	if err != nil {
+		return err
+	}
+
+	search := mod.parseSearch(ctx.Args, []nicovideo.Field{}, 0, 10)
+
+	t, err := mod.config.Repository.ConfigGet(ctx.Message.GuildID, "nico", name)
+	if err != nil {
+		return err
+	}
+
+	feed := &feed{}
+
+	if t != "" {
+		err = json.Unmarshal([]byte(t), feed)
+		if err != nil {
+			return err
+		}
+	}
+
+	feed.ChannelID = channel.ID
+	feed.Targets = search.Targets
+	feed.Query = search.Query
+	feed.Filters = search.Filters
+
+	feed.Period, err = time.ParseDuration(period)
+	if err != nil {
+		return err
+	}
+
+	err = mod.executeFeed(feed)
+	if err != nil {
+		return err
+	}
+
+	bs, err := json.Marshal(feed)
+	if err != nil {
+		return err
+	}
+
+	return mod.config.Repository.ConfigSet(ctx.Message.GuildID, "nico", name, string(bs))
 }
 
 func (mod *module) renderSelection(session *discordgo.Session, msg *discordgo.Message, lines []string, n int) {
@@ -477,14 +664,14 @@ fields:
 
 # filters can be used with fields
 filters:
-- $tags=value1                         # equal
-- $tags=value1 $tags=value2            # equal to either of
-- $mylistCounter=1000                  # equal
-- $mylistCounter=>1000                 # greater or equal
-- $mylistCounter=<1000                 # less or equal
-- $mylistCounter=1000..2000            # range
-- $startTime=2020-01-30                # equal to date
-- $startTime=2019-01-01..2020-01-01    # time/date in range 
+- $tags=value1                        # equal
+- $tags=value1 $tags=value2           # equal to either of
+- $mylistCounter=1000                 # equal
+- $mylistCounter=>1000                # greater or equal
+- $mylistCounter=<1000                # less or equal
+- $mylistCounter=1000..2000           # range
+- $startTime=2020-01-30               # equal to date
+- $startTime=2019-01-01..2020-01-01   # time/date in range 
 - $startTime=2020-01-30T17:49:51+09:00 # timezone
 
 # targets can be used with fields for freestanding query
