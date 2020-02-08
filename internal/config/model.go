@@ -1,5 +1,9 @@
 package config
 
+import (
+	"time"
+)
+
 // Redis connection part of configuration
 type Redis struct {
 	Address  string `yaml:"address"`
@@ -7,13 +11,22 @@ type Redis struct {
 	DB       int    `yaml:"db"`
 }
 
+// Nicovideo download configuration
+type Nicovideo struct {
+	Directory string        `yaml:"directory"`
+	Public    string        `yaml:"public"`
+	Period    time.Duration `yaml:"period"`
+	Opts      []string      `yaml:"opts"`
+}
+
 // Private part of configuration
 type Private struct {
-	Token  string `yaml:"token"`
-	Admins string `yaml:"admins"`
-	Prefix string `yaml:"prefix"`
-	Data   string `yaml:"data"`
-	Redis  Redis  `yaml:"redis"`
+	Token     string    `yaml:"token"`
+	Admins    string    `yaml:"admins"`
+	Prefix    string    `yaml:"prefix"`
+	Data      string    `yaml:"data"`
+	Redis     Redis     `yaml:"redis"`
+	Nicovideo Nicovideo `yaml:"nicovideo"`
 }
 
 // Server specific part of configuration

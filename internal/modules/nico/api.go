@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -22,6 +24,8 @@ var (
 	ErrNothingFound = errors.New("nothing found")
 	// ErrInvalidArgumentNumber is returned on invalid argument number
 	ErrInvalidArgumentNumber = errors.New("invalid argument number")
+	// ErrInvalidURL is returned when invalid url submitted to download
+	ErrInvalidURL = errors.New("invalid url")
 )
 
 // Used emojis
@@ -61,9 +65,12 @@ func (mod *module) Initialize(config *bot.Configuration) error {
 	group.On("nico.feed", "start nico feed", mod.commandFeed).Set(auth.RouteConfigKey, &auth.RouteConfig{
 		Permissions: discordgo.PermissionAdministrator,
 	})
+	group.On("nico.download", "download video", mod.commandDownload)
 	group.On("nico.help", "prints help on search terms", mod.commandHelp)
 
 	go mod.backgroundFeed()
+	go mod.startDownload()
+	go mod.startCleanup()
 
 	return nil
 }
@@ -165,7 +172,7 @@ func (mod *module) executeFeed(feed *feed) error {
 	search.Filters = feed.Filters
 	search.SortField = nicovideo.FieldStartTime
 	search.SortDirection = nicovideo.SortDesc
-	search.Limit = 10
+	search.Limit = 20
 
 	if !feed.Last.IsZero() {
 		search.Filters = append(search.Filters, nicovideo.Filter{
@@ -200,6 +207,42 @@ func (mod *module) executeFeed(feed *feed) error {
 	return nil
 }
 
+func (mod *module) commandDownload(ctx *router.Context) error {
+	if len(ctx.Args) < 2 {
+		return ErrInvalidArgumentNumber
+	}
+
+	urlraw := ctx.Args[1]
+
+	u, err := url.Parse(urlraw)
+	if err != nil {
+		return err
+	}
+
+	switch u.Hostname() {
+	case "www.nicovideo.jp", "nicovideo.jp":
+		var m bool
+
+		if m, err = regexp.MatchString("^.*/sm[0-9]*$", urlraw); err != nil || !m {
+			return ErrInvalidURL
+		}
+	default:
+		return ErrInvalidURL
+	}
+
+	msg, err := ctx.Reply("Starting download...")
+	if err != nil {
+		return err
+	}
+
+	return mod.config.Repository.TaskEnqueue(&TaskDownload{
+		GuildID:   msg.GuildID,
+		ChannelID: msg.ChannelID,
+		MessageID: msg.ID,
+		VideoURL:  urlraw,
+	}, 0, 0)
+}
+
 func (mod *module) commandFeed(ctx *router.Context) error {
 	if len(ctx.Args) < 4 {
 		return ErrInvalidArgumentNumber
@@ -213,7 +256,7 @@ func (mod *module) commandFeed(ctx *router.Context) error {
 		return err
 	}
 
-	search := mod.parseSearch(ctx.Args, []nicovideo.Field{}, 0, 10)
+	search := mod.parseSearch(ctx.Args, []nicovideo.Field{}, 0, 20)
 
 	t, err := mod.config.Repository.ConfigGet(ctx.Message.GuildID, "nico", name)
 	if err != nil {

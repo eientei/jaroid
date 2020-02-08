@@ -5,3 +5,11 @@ private:
     address: "127.0.0.1:6379"
     password: ""
     db: 0
+  nicovideo:
+    directory: "/home/http/public/nicovideo"
+    public: "https://public.eientei.org/nicovideo"
+    period: "24h"
+    opts:
+      - "--add-metadata"
+      - "--xattrs"
+      - "--newline"
