@@ -239,7 +239,7 @@ downloadLoop:
 			continue downloadLoop
 		}
 
-		err = mod.downloadVideo(task)
+		err = mod.tryDownload(task)
 		if err != nil {
 			mod.config.Log.WithError(err).Error("Downloading video")
 			mod.updateMessage(task, "Downloading error")
@@ -253,6 +253,30 @@ downloadLoop:
 		}
 
 		mod.ackTask(task, id, nil)
+	}
+}
+
+func (mod *module) tryDownload(task *TaskDownload) (err error) {
+	i := 0
+	last := time.Now()
+
+	for {
+		err = mod.downloadVideo(task)
+		if err != nil {
+			if time.Since(last) < time.Second*30 {
+				i++
+			} else {
+				i = 0
+			}
+
+			last = time.Now()
+
+			if i >= 3 {
+				return err
+			}
+		} else {
+			return nil
+		}
 	}
 }
 
@@ -271,7 +295,8 @@ func (mod *module) startCleanup() {
 
 		_ = os.Remove(task.FilePath)
 
-		err = mod.config.Discord.ChannelMessageDelete(task.ChannelID, task.MessageID)
+		line := "Downloaded video deleted due to expiration"
+		_, err = mod.config.Discord.ChannelMessageEdit(task.ChannelID, task.MessageID, line)
 		mod.ackTask(task, id, err)
 	}
 }
