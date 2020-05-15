@@ -34,6 +34,7 @@ type Server struct {
 	GuildID string   `yaml:"id"`
 	Admins  []string `yaml:"admins"`
 	Prefix  string   `yaml:"prefix"`
+	LogDB   string   `yaml:"logdb"`
 }
 
 // Root of configuration

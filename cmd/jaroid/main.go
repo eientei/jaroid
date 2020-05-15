@@ -4,6 +4,10 @@ import (
 	"flag"
 	"os"
 
+	"github.com/eientei/jaroid/internal/modules/logdb"
+
+	"github.com/eientei/jaroid/internal/modules/deletereact"
+
 	"github.com/bwmarrin/discordgo"
 	"github.com/eientei/jaroid/internal/bot"
 	yamlConfig "github.com/eientei/jaroid/internal/config"
@@ -79,6 +83,8 @@ func main() {
 			nico.New(),
 			join.New(),
 			color.New(),
+			deletereact.New(),
+			logdb.New(),
 		},
 	})
 
