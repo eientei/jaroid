@@ -4,6 +4,8 @@ import (
 	"flag"
 	"os"
 
+	"github.com/eientei/jaroid/internal/modules/pin"
+
 	"github.com/eientei/jaroid/internal/modules/logdb"
 
 	"github.com/eientei/jaroid/internal/modules/deletereact"
@@ -85,6 +87,7 @@ func main() {
 			color.New(),
 			deletereact.New(),
 			logdb.New(),
+			pin.New(),
 		},
 	})
 

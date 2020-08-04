@@ -41,11 +41,10 @@ linters-settings:
     force-case-trailing-whitespace: 0
 
 linters:
-  disabel-all: true
+  disable-all: true
   enable:
     - govet
     - errcheck
-    - staticcheck
     - unused
     - gosimple
     - structcheck

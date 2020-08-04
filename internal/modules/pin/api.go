@@ -1,0 +1,183 @@
+// Package pin provides bot module to pin/unpin messages
+package pin
+
+import (
+	"errors"
+	"sync"
+
+	"github.com/bwmarrin/discordgo"
+	"github.com/eientei/jaroid/internal/bot"
+	"github.com/eientei/jaroid/internal/router"
+)
+
+var (
+	// ErrInvalidArgumentNumber is returned on invalid argument number
+	ErrInvalidArgumentNumber = errors.New("invalid argument number")
+	// ErrInvalidMessageID is returned on invalid message id
+	ErrInvalidMessageID = errors.New("invalid message id")
+	// ErrAlreadyPinned is returned on pinning already pinned message
+	ErrAlreadyPinned = errors.New("already pinned")
+	// ErrNotPinned is returned on unpinning not pinned message
+	ErrNotPinned = errors.New("not  pinned")
+	// ErrNotAllowed is returned when calling user do not have emoji editing role
+	ErrNotAllowed = errors.New("not allowed")
+)
+
+// New provides module instance
+func New() bot.Module {
+	return &module{
+		mutex: &sync.Mutex{},
+	}
+}
+
+type module struct {
+	pins   map[string][]*discordgo.Message
+	mutex  *sync.Mutex
+	config *bot.Configuration
+}
+
+func (mod *module) Initialize(config *bot.Configuration) error {
+	mod.config = config
+	mod.pins = make(map[string][]*discordgo.Message)
+
+	config.Discord.AddHandler(mod.handlerChannelPinsUpdate)
+
+	group := config.Router.Group("pins").SetDescription("manage pins")
+
+	group.On("pin", "pin message by ID", mod.commandPin)
+	group.On("unpin", "unpin message by ID", mod.commandUnpin)
+
+	return nil
+}
+
+func (mod *module) Configure(config *bot.Configuration, guild *discordgo.Guild) {
+}
+
+func (mod *module) Shutdown(config *bot.Configuration) {
+
+}
+
+func (mod *module) currentPins(channelID string) ([]*discordgo.Message, error) {
+	mod.mutex.Lock()
+	defer mod.mutex.Unlock()
+
+	pins, ok := mod.pins[channelID]
+	if ok {
+		return pins, nil
+	}
+
+	msgs, err := mod.config.Discord.ChannelMessagesPinned(channelID)
+	if err != nil {
+		return nil, err
+	}
+
+	mod.pins[channelID] = msgs
+
+	return msgs, nil
+}
+
+func (mod *module) handlerChannelPinsUpdate(
+	session *discordgo.Session,
+	channelPinsUpdate *discordgo.ChannelPinsUpdate,
+) {
+	mod.mutex.Lock()
+	defer mod.mutex.Unlock()
+
+	delete(mod.pins, channelPinsUpdate.ChannelID)
+}
+
+func (mod *module) checkPermissions(ctx *router.Context) (bool, error) {
+	role, err := mod.config.Repository.ConfigGet(ctx.Message.GuildID, "pins", "role")
+	if err != nil {
+		return false, err
+	}
+
+	if role == "" {
+		return false, nil
+	}
+
+	for _, r := range ctx.Message.Member.Roles {
+		if r == role {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+func (mod *module) commandPin(ctx *router.Context) error {
+	ok, err := mod.checkPermissions(ctx)
+	if err != nil {
+		return err
+	}
+
+	if !ok {
+		return ErrNotAllowed
+	}
+
+	if len(ctx.Args) < 2 {
+		return ErrInvalidArgumentNumber
+	}
+
+	mid := ctx.Args[1]
+
+	_, err = ctx.Session.ChannelMessage(ctx.Message.ChannelID, mid)
+	if err != nil {
+		return ErrInvalidMessageID
+	}
+
+	msgs, err := mod.currentPins(ctx.Message.ChannelID)
+	if err != nil {
+		return err
+	}
+
+	for _, m := range msgs {
+		if m.ID == mid {
+			return ErrAlreadyPinned
+		}
+	}
+
+	return ctx.Session.ChannelMessagePin(ctx.Message.ChannelID, mid)
+}
+
+func (mod *module) commandUnpin(ctx *router.Context) error {
+	ok, err := mod.checkPermissions(ctx)
+	if err != nil {
+		return err
+	}
+
+	if !ok {
+		return ErrNotAllowed
+	}
+
+	if len(ctx.Args) < 2 {
+		return ErrInvalidArgumentNumber
+	}
+
+	mid := ctx.Args[1]
+
+	_, err = ctx.Session.ChannelMessage(ctx.Message.ChannelID, mid)
+	if err != nil {
+		return ErrInvalidMessageID
+	}
+
+	msgs, err := mod.currentPins(ctx.Message.ChannelID)
+	if err != nil {
+		return err
+	}
+
+	found := false
+
+	for _, m := range msgs {
+		if m.ID == mid {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		return ErrNotPinned
+	}
+
+	return ctx.Session.ChannelMessageUnpin(ctx.Message.ChannelID, mid)
+}
