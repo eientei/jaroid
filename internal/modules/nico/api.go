@@ -26,6 +26,8 @@ var (
 	ErrInvalidArgumentNumber = errors.New("invalid argument number")
 	// ErrInvalidURL is returned when invalid url submitted to download
 	ErrInvalidURL = errors.New("invalid url")
+	// ErrInvalidFormat inidactes invalid video format
+	ErrInvalidFormat = errors.New("invalid format id")
 )
 
 // Used emojis
@@ -66,10 +68,11 @@ func (mod *module) Initialize(config *bot.Configuration) error {
 		Permissions: discordgo.PermissionAdministrator,
 	})
 	group.On("nico.download", "download video", mod.commandDownload)
-	group.On("nico.help", "prints help on search terms", mod.commandHelp)
+	group.On("nico.help", "prints nico help", mod.commandHelp)
 
 	go mod.backgroundFeed()
 	go mod.startDownload()
+	go mod.startList()
 	go mod.startCleanup()
 
 	return nil
@@ -235,11 +238,27 @@ func (mod *module) commandDownload(ctx *router.Context) error {
 		return err
 	}
 
+	var format string
+
+	if len(ctx.Args) > 2 {
+		format = ctx.Args[2]
+	}
+
+	if format == "list" {
+		return mod.config.Repository.TaskEnqueue(&TaskList{
+			GuildID:   msg.GuildID,
+			ChannelID: msg.ChannelID,
+			MessageID: msg.ID,
+			VideoURL:  urlraw,
+		}, 0, 0)
+	}
+
 	return mod.config.Repository.TaskEnqueue(&TaskDownload{
 		GuildID:   msg.GuildID,
 		ChannelID: msg.ChannelID,
 		MessageID: msg.ID,
 		VideoURL:  urlraw,
+		Format:    format,
 	}, 0, 0)
 }
 
@@ -689,7 +708,33 @@ func (mod *module) commandList(ctx *router.Context) error {
 }
 
 func (mod *module) commandHelp(ctx *router.Context) error {
+	err := ctx.ReplyEmbed("```yaml\n" + `
+>>> nico.download [format code | list] <url>
+
+Download a video from niconico, in given format
+(if specified), or list available formats.
+
+example:
+# download video with default format
+> nico.download https://www.nicovideo.jp/watch/sm00
+
+example:
+# list video formats
+> nico.download https://www.nicovideo.jp/watch/sm00 list
+
+example:
+# downloaf video with format code f1
+> nico.download https://www.nicovideo.jp/watch/sm00 f1
+` + "```")
+	if err != nil {
+		return err
+	}
+
 	return ctx.ReplyEmbed("```yaml\n" + `
+>>> nico.search <filters>
+
+Search for videos using given filters and sortings
+
 # fields can be used in filters, sorts and targets
 fields:
 - contentId                           # content string ID

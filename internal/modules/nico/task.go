@@ -2,6 +2,7 @@ package nico
 
 import (
 	"bufio"
+	"bytes"
 	"io"
 	"os"
 	"os/exec"
@@ -13,8 +14,48 @@ import (
 	"github.com/eientei/jaroid/internal/model"
 )
 
+const taskNico = "nico"
+
+var filenameSanitizer = strings.NewReplacer(
+	"/", "",
+	"\x00", "",
+	"\"", "",
+	"\\", "",
+	"'", "",
+)
+
+func filenameSanitize(s string) string {
+	s = filenameSanitizer.Replace(s)
+
+	bs := []byte(s)
+	if len(bs) > 128 {
+		bs = bs[:128]
+	}
+
+	return strings.ToValidUTF8(string(bs), "")
+}
+
 // TaskDownload provides video download task
 type TaskDownload struct {
+	GuildID   string `json:"guild_id"`
+	ChannelID string `json:"channel_id"`
+	MessageID string `json:"message_id"`
+	VideoURL  string `json:"video_url"`
+	Format    string `json:"format"`
+}
+
+// Scope returns task scope
+func (TaskDownload) Scope() string {
+	return taskNico
+}
+
+// Name returns task name
+func (TaskDownload) Name() string {
+	return "download"
+}
+
+// TaskList provides list of video formats available
+type TaskList struct {
 	GuildID   string `json:"guild_id"`
 	ChannelID string `json:"channel_id"`
 	MessageID string `json:"message_id"`
@@ -22,13 +63,13 @@ type TaskDownload struct {
 }
 
 // Scope returns task scope
-func (TaskDownload) Scope() string {
-	return "nico"
+func (TaskList) Scope() string {
+	return taskNico
 }
 
 // Name returns task name
-func (TaskDownload) Name() string {
-	return "download"
+func (TaskList) Name() string {
+	return "list"
 }
 
 // TaskCleanup provides message and file removal delayed task
@@ -41,7 +82,7 @@ type TaskCleanup struct {
 
 // Scope returns task scope
 func (TaskCleanup) Scope() string {
-	return "nico"
+	return taskNico
 }
 
 // Name returns task name
@@ -109,20 +150,20 @@ func (mod *module) downloadSend(task *TaskDownload, fpath string) {
 	}
 }
 
-func (mod *module) updateMessage(task *TaskDownload, line string) {
+func (mod *module) updateMessage(guildID, channelID, messageID, line string) {
 	if len(line) == 0 {
 		return
 	}
 
-	_, err := mod.config.Discord.ChannelMessageEdit(task.ChannelID, task.MessageID, line)
+	_, err := mod.config.Discord.ChannelMessageEdit(channelID, messageID, line)
 	if err != nil {
-		mod.config.Log.WithError(err).Error("Editing message", task.GuildID, task.ChannelID, task.MessageID)
+		mod.config.Log.WithError(err).Error("Editing message", guildID, channelID, messageID)
 	}
 }
 
-func (mod *module) downloadVideo(task *TaskDownload) (err error) {
+func (mod *module) listFormatsVideo(task *TaskList) (err error) {
 	args := append([]string{}, mod.config.Config.Private.Nicovideo.Opts...)
-	args = append(args, "-o", mod.config.Config.Private.Nicovideo.Directory+"/%(id)s-max.%(ext)s")
+	args = append(args, "-F")
 	args = append(args, task.VideoURL)
 
 	cmd := exec.Command("youtube-dl", args...)
@@ -147,6 +188,8 @@ func (mod *module) downloadVideo(task *TaskDownload) (err error) {
 
 	last := time.Now()
 
+	var buf bytes.Buffer
+
 	for {
 		var tmpline string
 
@@ -161,7 +204,7 @@ func (mod *module) downloadVideo(task *TaskDownload) (err error) {
 				err = nil
 			}
 
-			mod.updateMessage(task, line)
+			mod.updateMessage(task.GuildID, task.ChannelID, task.MessageID, line)
 
 			break
 		}
@@ -169,7 +212,12 @@ func (mod *module) downloadVideo(task *TaskDownload) (err error) {
 		if time.Since(last) > time.Second*10 {
 			last = time.Now()
 
-			mod.updateMessage(task, line)
+			mod.updateMessage(task.GuildID, task.ChannelID, task.MessageID, line)
+		}
+
+		if !strings.HasPrefix(line, "[") {
+			buf.WriteString(line)
+			buf.WriteString("\n")
 		}
 	}
 
@@ -186,11 +234,117 @@ func (mod *module) downloadVideo(task *TaskDownload) (err error) {
 		return err
 	}
 
+	mod.updateMessage(task.GuildID, task.ChannelID, task.MessageID, "```"+buf.String()+"```")
+
+	return nil
+}
+
+func (mod *module) readDownloadVideo(task *TaskDownload, bufread *bufio.Reader) (err error) {
+	var line string
+
+	last := time.Now()
+
+	for {
+		var tmpline string
+
+		tmpline, err = mod.readLine(bufread)
+
+		if len(tmpline) > 0 {
+			line = tmpline
+		}
+
+		if strings.Contains(line, "requested format not available") {
+			mod.updateMessage(task.GuildID, task.ChannelID, task.MessageID, line)
+
+			return ErrInvalidFormat
+		}
+
+		if err != nil {
+			if err == io.EOF || err == io.ErrUnexpectedEOF {
+				err = nil
+			}
+
+			mod.updateMessage(task.GuildID, task.ChannelID, task.MessageID, line)
+
+			break
+		}
+
+		if time.Since(last) > time.Second*10 {
+			last = time.Now()
+
+			mod.updateMessage(task.GuildID, task.ChannelID, task.MessageID, line)
+		}
+	}
+
+	return err
+}
+
+func (mod *module) downloadVideo(task *TaskDownload) (err error) {
+	format := task.Format
+
+	args := append([]string{}, mod.config.Config.Private.Nicovideo.Opts...)
+
+	if format == "" {
+		format = "max"
+	} else {
+		format = filenameSanitize(format)
+	}
+
+	args = append(args, "-o", mod.config.Config.Private.Nicovideo.Directory+"/%(id)s-"+format+".%(ext)s")
+
+	if task.Format != "" {
+		args = append(args, "-f", task.Format)
+	}
+
+	args = append(args, task.VideoURL)
+
+	cmd := exec.Command("youtube-dl", args...)
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		mod.config.Log.WithError(err).Error("Getting stdout")
+
+		return err
+	}
+
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		mod.config.Log.WithError(err).Error("Getting stderr")
+
+		return err
+	}
+
+	bufread := bufio.NewReader(io.MultiReader(stdout, stderr))
+
+	err = cmd.Start()
+	if err != nil {
+		mod.config.Log.WithError(err).Error("Starting task")
+
+		return err
+	}
+
+	err = mod.readDownloadVideo(task, bufread)
+	if err != nil && err != ErrInvalidFormat {
+		mod.config.Log.WithError(err).Error("Reading stdout")
+	}
+
+	if err == ErrInvalidFormat {
+		_ = cmd.Wait()
+		return err
+	}
+
+	err = cmd.Wait()
+	if err != nil {
+		mod.config.Log.WithError(err).Error("Finishing executing")
+
+		return err
+	}
+
 	return nil
 }
 
 func (mod *module) globFind(fileID string) (string, error) {
-	matches, err := filepath.Glob(mod.config.Config.Private.Nicovideo.Directory + "/" + fileID + "-*")
+	matches, err := filepath.Glob(mod.config.Config.Private.Nicovideo.Directory + "/" + fileID + "*")
 	if err != nil {
 		mod.config.Log.WithError(err).Error("Globbing")
 
@@ -204,6 +358,39 @@ func (mod *module) globFind(fileID string) (string, error) {
 	}
 
 	return "", nil
+}
+
+func (mod *module) startList() {
+	task := &TaskList{}
+
+	for {
+		id, err := mod.config.Repository.TaskDequeue(task, time.Second)
+		if err != nil {
+			mod.config.Log.WithError(err).Error("Dequeuing")
+			continue
+		}
+
+		if id == "" {
+			continue
+		}
+
+		parts := strings.Split(task.VideoURL, "/")
+		if len(parts) == 0 {
+			mod.ackTask(task, id, nil)
+
+			continue
+		}
+
+		err = mod.tryPerform(func() error {
+			return mod.listFormatsVideo(task)
+		})
+		if err != nil {
+			mod.config.Log.WithError(err).Error("Listing formats for video")
+			mod.updateMessage(task.GuildID, task.ChannelID, task.MessageID, "Listing formats error")
+		}
+
+		mod.ackTask(task, id, nil)
+	}
 }
 
 func (mod *module) startDownload() {
@@ -228,7 +415,7 @@ downloadLoop:
 			continue
 		}
 
-		fileID := parts[len(parts)-1]
+		fileID := formatFileID(parts[len(parts)-1], task.Format)
 
 		var fpath string
 
@@ -239,10 +426,12 @@ downloadLoop:
 			continue downloadLoop
 		}
 
-		err = mod.tryDownload(task)
+		err = mod.tryPerform(func() error {
+			return mod.downloadVideo(task)
+		})
 		if err != nil {
 			mod.config.Log.WithError(err).Error("Downloading video")
-			mod.updateMessage(task, "Downloading error")
+			mod.updateMessage(task.GuildID, task.ChannelID, task.MessageID, "Downloading error")
 			mod.ackTask(task, id, nil)
 
 			continue
@@ -256,13 +445,21 @@ downloadLoop:
 	}
 }
 
-func (mod *module) tryDownload(task *TaskDownload) (err error) {
+func formatFileID(fileID, format string) string {
+	if format == "" {
+		return fileID + "-max"
+	}
+
+	return fileID + "-" + format
+}
+
+func (mod *module) tryPerform(action func() error) (err error) {
 	i := 0
 	last := time.Now()
 
 	for {
-		err = mod.downloadVideo(task)
-		if err != nil {
+		err = action()
+		if err != nil && err != ErrInvalidFormat {
 			if time.Since(last) < time.Second*30 {
 				i++
 			} else {
