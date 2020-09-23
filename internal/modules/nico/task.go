@@ -3,10 +3,17 @@ package nico
 import (
 	"bufio"
 	"bytes"
+	"encoding/xml"
+	"fmt"
 	"io"
+	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,6 +22,8 @@ import (
 )
 
 const taskNico = "nico"
+
+var bitrateExtractor = regexp.MustCompile(`^\S+\s+\S+\s+\S+\s+([0-9]+)(\S*)`)
 
 var filenameSanitizer = strings.NewReplacer(
 	"/", "",
@@ -128,10 +137,10 @@ func (mod *module) readLine(bufread *bufio.Reader) (line string, err error) {
 
 func (mod *module) downloadSend(task *TaskDownload, fpath string) {
 	base := filepath.Base(fpath)
-	url := mod.config.Config.Private.Nicovideo.Public + "/" + base
+	uri := mod.config.Config.Private.Nicovideo.Public + "/" + base
 	sb := &strings.Builder{}
 	_, _ = sb.WriteString("Downloaded as ")
-	_, _ = sb.WriteString(url)
+	_, _ = sb.WriteString(uri)
 	_, _ = sb.WriteString(" file will be deleted after " + mod.config.Config.Private.Nicovideo.Period.String())
 	_, err := mod.config.Discord.ChannelMessageEdit(task.ChannelID, task.MessageID, sb.String())
 
@@ -161,7 +170,99 @@ func (mod *module) updateMessage(guildID, channelID, messageID, line string) {
 	}
 }
 
+type nicovideoThumb struct {
+	XMLName xml.Name `xml:"nicovideo_thumb_response"`
+	Thumb   struct {
+		Length string `xml:"length"`
+	} `xml:"thumb"`
+}
+
+func getNicovideoLength(id string) (time.Duration, error) {
+	resp, err := http.Get("https://ext.nicovideo.jp/api/getthumbinfo/" + url.PathEscape(id))
+	if err != nil {
+		return 0, err
+	}
+
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	var thumb nicovideoThumb
+
+	err = xml.NewDecoder(resp.Body).Decode(&thumb)
+	if err != nil {
+		return 0, err
+	}
+
+	if thumb.Thumb.Length == "" {
+		return 0, nil
+	}
+
+	dur := time.Duration(0)
+	unit := time.Second
+
+	parts := strings.Split(thumb.Thumb.Length, ":")
+
+	for i := len(parts) - 1; i >= 0; i-- {
+		v, err := strconv.ParseUint(parts[i], 10, 64)
+		if err != nil {
+			return 0, err
+		}
+
+		dur += unit * time.Duration(v)
+		unit *= 60
+	}
+
+	return dur, nil
+}
+
+func findBitrate(s string) int {
+	matches := bitrateExtractor.FindStringSubmatch(s)
+
+	if len(matches) < 3 {
+		return 0
+	}
+
+	value, err := strconv.ParseUint(matches[1], 10, 64)
+	if err != nil {
+		return 0
+	}
+
+	switch strings.ToLower(matches[2]) {
+	case "", "b":
+		return int(value)
+	case "k":
+		return int(value) * 1024
+	case "m":
+		return int(value) * 1024 * 1024
+	case "g":
+		return int(value) * 1024 * 1024 * 1024
+	}
+
+	return 0
+}
+
+var humanFileSuffixes = []string{"B", "KiB", "MiB", "GiB", "TiB", "PiB"}
+
+func humanFileSize(size float64) string {
+	i := 0
+
+	for i < len(humanFileSuffixes) && size > 1024 {
+		size /= 1024
+		i++
+	}
+
+	return fmt.Sprintf("%5.1f%s", size, humanFileSuffixes[i])
+}
+
 func (mod *module) listFormatsVideo(task *TaskList) (err error) {
+	baseid := path.Base(task.VideoURL)
+
+	dur, err := getNicovideoLength(baseid)
+	if err != nil {
+		return err
+	}
+
 	args := append([]string{}, mod.config.Config.Private.Nicovideo.Opts...)
 	args = append(args, "-F")
 	args = append(args, task.VideoURL)
@@ -188,7 +289,7 @@ func (mod *module) listFormatsVideo(task *TaskList) (err error) {
 
 	last := time.Now()
 
-	var buf bytes.Buffer
+	var lines []string
 
 	for {
 		var tmpline string
@@ -216,8 +317,7 @@ func (mod *module) listFormatsVideo(task *TaskList) (err error) {
 		}
 
 		if !strings.HasPrefix(line, "[") {
-			buf.WriteString(line)
-			buf.WriteString("\n")
+			lines = append(lines, line)
 		}
 	}
 
@@ -234,9 +334,48 @@ func (mod *module) listFormatsVideo(task *TaskList) (err error) {
 		return err
 	}
 
-	mod.updateMessage(task.GuildID, task.ChannelID, task.MessageID, "```"+buf.String()+"```")
+	buf := processLengthLines(lines, dur)
+
+	mod.updateMessage(task.GuildID, task.ChannelID, task.MessageID, "```"+buf+"```")
 
 	return nil
+}
+
+func processLengthLines(lines []string, dur time.Duration) string {
+	var maxlength int
+
+	for _, l := range lines {
+		if len(l) > maxlength {
+			maxlength = len(l)
+		}
+	}
+
+	var buf bytes.Buffer
+
+	for _, l := range lines {
+		if strings.HasPrefix(l, "format code") {
+			buf.WriteString(l + " size(estimate)\n")
+			continue
+		}
+
+		bitrate := findBitrate(l)
+
+		if bitrate == 0 {
+			buf.WriteString(l + "\n")
+			continue
+		}
+
+		size := dur.Seconds() * (float64(bitrate) / 8)
+
+		estimate := humanFileSize(size)
+
+		l += strings.Repeat(" ", maxlength-len(l))
+		l += " " + estimate
+
+		buf.WriteString(l + "\n")
+	}
+
+	return buf.String()
 }
 
 func (mod *module) readDownloadVideo(task *TaskDownload, bufread *bufio.Reader) (err error) {
