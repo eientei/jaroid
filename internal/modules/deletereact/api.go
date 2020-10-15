@@ -80,6 +80,19 @@ func (mod *module) handlerDelete(session *discordgo.Session, messageDelete *disc
 	mod.lock.RLock()
 	defer mod.lock.RUnlock()
 
+	s, err := mod.config.Repository.ConfigGet(messageDelete.GuildID, "deletereact", "excluded")
+	if err != nil {
+		mod.config.Log.WithError(err).Error("Getting excluded channels")
+		return
+	}
+
+	parts := strings.Split(s, ",")
+	for _, p := range parts {
+		if messageDelete.ChannelID == p {
+			return
+		}
+	}
+
 	db, ok := mod.dbmap[messageDelete.GuildID]
 	if !ok {
 		return
