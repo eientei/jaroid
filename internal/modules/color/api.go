@@ -112,7 +112,7 @@ func (mod *module) Configure(config *bot.Configuration, guild *discordgo.Guild) 
 			members: make(map[string][]string),
 		}
 
-		err := config.Discord.RequestGuildMembers(guild.ID, "", 0)
+		err := config.Discord.RequestGuildMembers(guild.ID, "", 0, false)
 		if err != nil {
 			mod.config.Log.WithError(err).Error("requesting members", guild)
 		}

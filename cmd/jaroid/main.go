@@ -65,6 +65,8 @@ func main() {
 		log.Fatal(err)
 	}
 
+	dg.Identify.Intents = discordgo.MakeIntent(discordgo.IntentsAll)
+
 	client := redis.NewClient(&redis.Options{
 		Addr:     configRoot.Private.Redis.Address,
 		Password: configRoot.Private.Redis.Password,
