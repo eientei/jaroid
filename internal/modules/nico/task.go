@@ -23,7 +23,7 @@ import (
 
 const taskNico = "nico"
 
-var bitrateExtractor = regexp.MustCompile(`^\S+\s+\S+\s+\S+\s+([0-9]+)(\S*)`)
+var bitrateExtractor = regexp.MustCompile(`@\s*([0-9]+)(\S*)`)
 
 var filenameSanitizer = strings.NewReplacer(
 	"/", "",
@@ -228,14 +228,16 @@ func findBitrate(s string) int {
 		return 0
 	}
 
-	switch strings.ToLower(matches[2]) {
-	case "", "b":
+	m := strings.ToLower(matches[2])
+
+	switch {
+	case m == "", strings.HasPrefix(m, "b"):
 		return int(value)
-	case "k":
+	case strings.HasPrefix(m, "k"):
 		return int(value) * 1024
-	case "m":
+	case strings.HasPrefix(s, "m"):
 		return int(value) * 1024 * 1024
-	case "g":
+	case strings.HasPrefix(s, "g"):
 		return int(value) * 1024 * 1024 * 1024
 	}
 
