@@ -157,6 +157,35 @@ type feed struct {
 	Period    time.Duration      `json:"period"`
 }
 
+func (mod *module) executeFeedSearch(feed *feed) (search *nicovideo.Search) {
+	search = &nicovideo.Search{}
+
+	search.Query = feed.Query
+	search.Targets = feed.Targets
+	search.Fields = []nicovideo.Field{
+		nicovideo.FieldContentID,
+		nicovideo.FieldTags,
+		nicovideo.FieldStartTime,
+		nicovideo.FieldLengthSeconds,
+		nicovideo.FieldViewCounter,
+		nicovideo.FieldMylistCounter,
+	}
+	search.Filters = feed.Filters
+	search.SortField = nicovideo.FieldStartTime
+	search.SortDirection = nicovideo.SortDesc
+	search.Limit = mod.config.Config.Private.Nicovideo.Limit
+
+	if !feed.Last.IsZero() {
+		search.Filters = append(search.Filters, nicovideo.Filter{
+			Field:    nicovideo.FieldStartTime,
+			Operator: nicovideo.OperatorGTE,
+			Values:   []string{feed.Last.Add(time.Second).Format(time.RFC3339)},
+		})
+	}
+
+	return
+}
+
 func (mod *module) executeFeed(feed *feed) error {
 	if time.Since(feed.Executed) < feed.Period {
 		return nil
@@ -178,32 +207,7 @@ func (mod *module) executeFeed(feed *feed) error {
 		return nil
 	}
 
-	search := &nicovideo.Search{}
-
-	search.Query = feed.Query
-	search.Targets = feed.Targets
-	search.Fields = []nicovideo.Field{
-		nicovideo.FieldContentID,
-		nicovideo.FieldTags,
-		nicovideo.FieldStartTime,
-		nicovideo.FieldLengthSeconds,
-		nicovideo.FieldViewCounter,
-		nicovideo.FieldMylistCounter,
-	}
-	search.Filters = feed.Filters
-	search.SortField = nicovideo.FieldStartTime
-	search.SortDirection = nicovideo.SortDesc
-	search.Limit = 20
-
-	if !feed.Last.IsZero() {
-		search.Filters = append(search.Filters, nicovideo.Filter{
-			Field:    nicovideo.FieldStartTime,
-			Operator: nicovideo.OperatorGTE,
-			Values:   []string{feed.Last.Add(time.Second).Format(time.RFC3339)},
-		})
-	}
-
-	res, err := mod.client.Search(search)
+	res, err := mod.client.Search(mod.executeFeedSearch(feed))
 	if err != nil {
 		backed = time.Now()
 
@@ -428,7 +432,7 @@ func (mod *module) handlerReactionAdd(session *discordgo.Session, messageReactio
 
 	switch messageReactionAdd.Emoji.Name {
 	case emojiOne, emojiTwo, emojiThree, emojiFour, emojiFive:
-		n := mod.parseNumber(messageReactionAdd.Emoji.Name) * 3
+		n := parseNumber(messageReactionAdd.Emoji.Name) * 3
 		if n+2 >= len(lines) {
 			return
 		}
@@ -459,150 +463,12 @@ func (mod *module) handlerReactionAdd(session *discordgo.Session, messageReactio
 	}
 }
 
-func (mod *module) isField(s string) bool {
-	switch nicovideo.Field(s) {
-	case nicovideo.FieldContentID,
-		nicovideo.FieldTitle,
-		nicovideo.FieldDescription,
-		nicovideo.FieldUserID,
-		nicovideo.FieldViewCounter,
-		nicovideo.FieldMylistCounter,
-		nicovideo.FieldLengthSeconds,
-		nicovideo.FieldThumbnailURL,
-		nicovideo.FieldStartTime,
-		nicovideo.FieldThreadID,
-		nicovideo.FieldCommentCounter,
-		nicovideo.FieldLastCommentTime,
-		nicovideo.FieldCategoryTags,
-		nicovideo.FieldChannelID,
-		nicovideo.FieldTags,
-		nicovideo.FieldTagsExact,
-		nicovideo.FieldLockTagsExact,
-		nicovideo.FieldGenre,
-		nicovideo.FieldGenreKeyword:
-		return true
-	}
-
-	return false
-}
-
-func (mod *module) isComparableField(s string) bool {
-	switch nicovideo.Field(s) {
-	case nicovideo.FieldViewCounter,
-		nicovideo.FieldMylistCounter,
-		nicovideo.FieldLengthSeconds,
-		nicovideo.FieldStartTime,
-		nicovideo.FieldCommentCounter,
-		nicovideo.FieldLastCommentTime:
-		return true
-	}
-
-	return false
-}
-
-func (mod *module) parseSarchVariables(a string, s *nicovideo.Search) bool {
-	parts := strings.Split(a[1:], "=")
-	if !mod.isField(parts[0]) {
-		s.Query += " " + a
-		return true
-	}
-
-	if mod.isComparableField(parts[0]) {
-		switch {
-		case strings.Contains(parts[1], ".."):
-			s.Filters = append(s.Filters, nicovideo.Filter{
-				Field:    nicovideo.Field(parts[0]),
-				Operator: nicovideo.OperatorRange,
-				Values:   strings.Split(parts[1], ".."),
-			})
-
-			return true
-		case strings.HasPrefix(parts[1], ">"):
-			s.Filters = append(s.Filters, nicovideo.Filter{
-				Field:    nicovideo.Field(parts[0]),
-				Operator: nicovideo.OperatorGTE,
-				Values:   []string{parts[1][1:]},
-			})
-
-			return true
-		case strings.HasPrefix(parts[1], "<"):
-			s.Filters = append(s.Filters, nicovideo.Filter{
-				Field:    nicovideo.Field(parts[0]),
-				Operator: nicovideo.OperatorLTE,
-				Values:   []string{parts[1][1:]},
-			})
-
-			return true
-		}
-	}
-
-	s.Filters = append(s.Filters, nicovideo.Filter{
-		Field:    nicovideo.Field(parts[0]),
-		Operator: nicovideo.OperatorEqual,
-		Values:   []string{parts[1]},
-	})
-
-	return false
-}
-
-func (mod *module) parseSearch(args router.Args, fields []nicovideo.Field, offset, limit int) (s *nicovideo.Search) {
-	s = &nicovideo.Search{
-		Fields: fields,
-		Offset: offset,
-		Limit:  limit,
-	}
-
-	s.SortDirection = nicovideo.SortDesc
-	s.SortField = nicovideo.FieldViewCounter
-
-	for _, a := range args[1:] {
-		switch {
-		case (strings.HasPrefix(a, "-") || strings.HasPrefix(a, "+")) && mod.isField(a[1:]):
-			s.SortDirection, s.SortField = nicovideo.SortDirection(a[0]), nicovideo.Field(a[1:])
-		case strings.HasPrefix(a, "%") && mod.isField(a[1:]):
-			s.Targets = append(s.Targets, nicovideo.Field(a[1:]))
-		case strings.HasPrefix(a, "$") && strings.Contains(a, "="):
-			if mod.parseSarchVariables(a, s) {
-				continue
-			}
-		default:
-			s.Query += " " + a
-		}
-	}
-
-	if len(s.Targets) == 0 {
-		s.Targets = []nicovideo.Field{
-			nicovideo.FieldTitle,
-			nicovideo.FieldTags,
-			nicovideo.FieldDescription,
-		}
-	}
-
-	return
-}
-
-func (mod *module) formatLength(t int) string {
-	return fmt.Sprintf("%d:%02d", t/60, t%60)
-}
-
-func (mod *module) formatTags(tags []string) (s string) {
-	for i, t := range tags {
-		if i > 0 {
-			s += " "
-		}
-
-		s += "`" + t + "`"
-	}
-
-	return
-}
-
 func (mod *module) singleRender(res *nicovideo.SearchItem) string {
 	sb := &strings.Builder{}
 	_, _ = sb.WriteString("https://www.nicovideo.jp/watch/" + res.ContentID)
 	_, _ = sb.WriteString("\nposted: " + res.SearchItemRaw.StartTime)
-	_, _ = sb.WriteString("\nlength: " + mod.formatLength(res.LengthSeconds))
-	_, _ = sb.WriteString("\ntags: " + mod.formatTags(res.Tags))
+	_, _ = sb.WriteString("\nlength: " + formatLength(res.LengthSeconds))
+	_, _ = sb.WriteString("\ntags: " + formatTags(res.Tags))
 	_, _ = sb.WriteString("\nviews: " + strconv.FormatInt(int64(res.ViewCounter), 10))
 	_, _ = sb.WriteString(" mylists: " + strconv.FormatInt(int64(res.MylistCounter), 10))
 
@@ -631,40 +497,6 @@ func (mod *module) commandSearch(ctx *router.Context) error {
 	return err
 }
 
-func (mod *module) formatNumber(i int) string {
-	switch i {
-	case 0:
-		return emojiOne
-	case 1:
-		return emojiTwo
-	case 2:
-		return emojiThree
-	case 3:
-		return emojiFour
-	case 4:
-		return emojiFive
-	}
-
-	return ""
-}
-
-func (mod *module) parseNumber(emoji string) int {
-	switch emoji {
-	case emojiOne:
-		return 0
-	case emojiTwo:
-		return 1
-	case emojiThree:
-		return 2
-	case emojiFour:
-		return 3
-	case emojiFive:
-		return 4
-	}
-
-	return 0
-}
-
 func (mod *module) listRender(authorID string, search *nicovideo.Search) (
 	content string,
 	res *nicovideo.SearchResult,
@@ -690,11 +522,11 @@ func (mod *module) listRender(authorID string, search *nicovideo.Search) (
 	_, _ = sb.WriteString("nico:" + authorID + ":" + query + "\n")
 
 	for i, v := range res.Data {
-		_, _ = sb.WriteString(mod.formatNumber(i) + " <https://www.nicovideo.jp/watch/" + v.ContentID + "> ")
-		_, _ = sb.WriteString(mod.formatLength(v.LengthSeconds) + " views " + strconv.FormatInt(int64(v.ViewCounter), 10))
+		_, _ = sb.WriteString(formatNumber(i) + " <https://www.nicovideo.jp/watch/" + v.ContentID + "> ")
+		_, _ = sb.WriteString(formatLength(v.LengthSeconds) + " views " + strconv.FormatInt(int64(v.ViewCounter), 10))
 		_, _ = sb.WriteString(" mylists " + strconv.FormatInt(int64(v.MylistCounter), 10) + "\n")
 		_, _ = sb.WriteString(v.SearchItemRaw.StartTime + " " + v.Title + "\n")
-		_, _ = sb.WriteString(mod.formatTags(v.Tags) + "\n")
+		_, _ = sb.WriteString(formatTags(v.Tags) + "\n")
 	}
 
 	pages := res.Meta.TotalCount / 5
@@ -733,7 +565,7 @@ func (mod *module) commandList(ctx *router.Context) error {
 	}
 
 	for i := range res.Data {
-		err = ctx.Session.MessageReactionAdd(msg.ChannelID, msg.ID, mod.formatNumber(i))
+		err = ctx.Session.MessageReactionAdd(msg.ChannelID, msg.ID, formatNumber(i))
 		if err != nil {
 			return err
 		}
@@ -752,8 +584,7 @@ func (mod *module) commandList(ctx *router.Context) error {
 	return err
 }
 
-func (mod *module) commandHelp(ctx *router.Context) error {
-	err := ctx.ReplyEmbed("```yaml\n" + `
+const nicoCommandHelp = "```yaml\n" + `
 >>> nico.download [format code | list] <url>
 
 Download a video from niconico, in given format
@@ -770,12 +601,9 @@ example:
 example:
 # downloaf video with format code f1
 > nico.download https://www.nicovideo.jp/watch/sm00 f1
-` + "```")
-	if err != nil {
-		return err
-	}
+` + "```"
 
-	return ctx.ReplyEmbed("```yaml\n" + `
+const nicoFilterHelp = "```yaml\n" + `
 >>> nico.search <filters>
 
 Search for videos using given filters and sortings
@@ -842,5 +670,13 @@ example:
 # having view count > 100
 # and sort by descending view count
 > cookie $viewCounter=>100 -viewCounter
-` + "```")
+` + "```"
+
+func (mod *module) commandHelp(ctx *router.Context) error {
+	err := ctx.ReplyEmbed(nicoCommandHelp)
+	if err != nil {
+		return err
+	}
+
+	return ctx.ReplyEmbed(nicoFilterHelp)
 }

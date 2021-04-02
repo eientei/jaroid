@@ -66,6 +66,10 @@ func (conf *Configuration) configure(guild *discordgo.Guild) {
 		conf.Config.Private.Nicovideo.Backoff = time.Hour
 	}
 
+	if conf.Config.Private.Nicovideo.Limit == 0 {
+		conf.Config.Private.Nicovideo.Limit = 100
+	}
+
 	s.prefix = prefix
 
 	err = conf.Repository.ConfigSet(guild.ID, "global", "prefix", prefix)

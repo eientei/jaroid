@@ -18,6 +18,7 @@ type Nicovideo struct {
 	Opts      []string      `yaml:"opts"`
 	Period    time.Duration `yaml:"period"`
 	Backoff   time.Duration `yaml:"backoff"`
+	Limit     int           `yaml:"limit"`
 }
 
 // Private part of configuration
