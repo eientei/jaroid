@@ -19,9 +19,9 @@ var (
 
 // RouteConfig holds authentication requirements for given route or route group
 type RouteConfig struct {
-	Permissions int
 	RoleIDs     []string
 	RoleNames   []string
+	Permissions int
 }
 
 // New provides module instacne

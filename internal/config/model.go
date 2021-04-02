@@ -15,8 +15,9 @@ type Redis struct {
 type Nicovideo struct {
 	Directory string        `yaml:"directory"`
 	Public    string        `yaml:"public"`
-	Period    time.Duration `yaml:"period"`
 	Opts      []string      `yaml:"opts"`
+	Period    time.Duration `yaml:"period"`
+	Backoff   time.Duration `yaml:"backoff"`
 }
 
 // Private part of configuration
@@ -32,13 +33,13 @@ type Private struct {
 // Server specific part of configuration
 type Server struct {
 	GuildID string   `yaml:"id"`
-	Admins  []string `yaml:"admins"`
 	Prefix  string   `yaml:"prefix"`
 	LogDB   string   `yaml:"logdb"`
+	Admins  []string `yaml:"admins"`
 }
 
 // Root of configuration
 type Root struct {
-	Private Private  `yaml:"private"`
 	Servers []Server `yaml:"servers"`
+	Private Private  `yaml:"private"`
 }

@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sirupsen/logrus"
+
 	"github.com/bwmarrin/discordgo"
 	"github.com/eientei/jaroid/internal/api/nicovideo"
 	"github.com/eientei/jaroid/internal/bot"
@@ -147,16 +149,32 @@ func (mod *module) backgroundFeed() {
 
 type feed struct {
 	ChannelID string             `json:"channel_id"`
-	Executed  time.Time          `json:"executed"`
-	Period    time.Duration      `json:"period"`
-	Last      time.Time          `json:"last"`
 	Query     string             `json:"query"`
+	Executed  time.Time          `json:"executed"`
+	Last      time.Time          `json:"last"`
 	Targets   []nicovideo.Field  `json:"targets"`
 	Filters   []nicovideo.Filter `json:"filters"`
+	Period    time.Duration      `json:"period"`
 }
 
 func (mod *module) executeFeed(feed *feed) error {
 	if time.Since(feed.Executed) < feed.Period {
+		return nil
+	}
+
+	nicobackoff, _ := mod.config.Client.Get("nico_backoff").Result()
+	backoff, _ := time.ParseDuration(nicobackoff)
+
+	nicobacked, _ := mod.config.Client.Get("nico_backed").Result()
+	backed, _ := time.Parse(time.RFC3339, nicobacked)
+
+	if time.Since(backed) < backoff {
+		mod.config.Log.WithFields(logrus.Fields{
+			"backoff": backoff,
+			"until":   backed.Add(backoff),
+			"feed":    *feed,
+		}).Warn("awaiting backoff")
+
 		return nil
 	}
 
@@ -187,6 +205,22 @@ func (mod *module) executeFeed(feed *feed) error {
 
 	res, err := mod.client.Search(search)
 	if err != nil {
+		backed = time.Now()
+
+		if backoff == 0 {
+			backoff = mod.config.Config.Private.Nicovideo.Backoff
+		} else {
+			backoff <<= 1
+		}
+
+		mod.config.Log.WithFields(logrus.Fields{
+			"backoff": backoff,
+			"feed":    *feed,
+		}).Error("backing off")
+
+		_ = mod.config.Client.Set("nico_backoff", backoff.String(), 0)
+		_ = mod.config.Client.Set("nico_backed", backed.Format(time.RFC3339), 0)
+
 		return err
 	}
 
@@ -206,6 +240,9 @@ func (mod *module) executeFeed(feed *feed) error {
 	}
 
 	feed.Executed = time.Now()
+
+	_ = mod.config.Client.Del("nico_backoff")
+	_ = mod.config.Client.Del("nico_backed")
 
 	return nil
 }
@@ -463,6 +500,51 @@ func (mod *module) isComparableField(s string) bool {
 	return false
 }
 
+func (mod *module) parseSarchVariables(a string, s *nicovideo.Search) bool {
+	parts := strings.Split(a[1:], "=")
+	if !mod.isField(parts[0]) {
+		s.Query += " " + a
+		return true
+	}
+
+	if mod.isComparableField(parts[0]) {
+		switch {
+		case strings.Contains(parts[1], ".."):
+			s.Filters = append(s.Filters, nicovideo.Filter{
+				Field:    nicovideo.Field(parts[0]),
+				Operator: nicovideo.OperatorRange,
+				Values:   strings.Split(parts[1], ".."),
+			})
+
+			return true
+		case strings.HasPrefix(parts[1], ">"):
+			s.Filters = append(s.Filters, nicovideo.Filter{
+				Field:    nicovideo.Field(parts[0]),
+				Operator: nicovideo.OperatorGTE,
+				Values:   []string{parts[1][1:]},
+			})
+
+			return true
+		case strings.HasPrefix(parts[1], "<"):
+			s.Filters = append(s.Filters, nicovideo.Filter{
+				Field:    nicovideo.Field(parts[0]),
+				Operator: nicovideo.OperatorLTE,
+				Values:   []string{parts[1][1:]},
+			})
+
+			return true
+		}
+	}
+
+	s.Filters = append(s.Filters, nicovideo.Filter{
+		Field:    nicovideo.Field(parts[0]),
+		Operator: nicovideo.OperatorEqual,
+		Values:   []string{parts[1]},
+	})
+
+	return false
+}
+
 func (mod *module) parseSearch(args router.Args, fields []nicovideo.Field, offset, limit int) (s *nicovideo.Search) {
 	s = &nicovideo.Search{
 		Fields: fields,
@@ -480,46 +562,9 @@ func (mod *module) parseSearch(args router.Args, fields []nicovideo.Field, offse
 		case strings.HasPrefix(a, "%") && mod.isField(a[1:]):
 			s.Targets = append(s.Targets, nicovideo.Field(a[1:]))
 		case strings.HasPrefix(a, "$") && strings.Contains(a, "="):
-			parts := strings.Split(a[1:], "=")
-			if !mod.isField(parts[0]) {
-				s.Query += " " + a
+			if mod.parseSarchVariables(a, s) {
 				continue
 			}
-
-			if mod.isComparableField(parts[0]) {
-				switch {
-				case strings.Contains(parts[1], ".."):
-					s.Filters = append(s.Filters, nicovideo.Filter{
-						Field:    nicovideo.Field(parts[0]),
-						Operator: nicovideo.OperatorRange,
-						Values:   strings.Split(parts[1], ".."),
-					})
-
-					continue
-				case strings.HasPrefix(parts[1], ">"):
-					s.Filters = append(s.Filters, nicovideo.Filter{
-						Field:    nicovideo.Field(parts[0]),
-						Operator: nicovideo.OperatorGTE,
-						Values:   []string{parts[1][1:]},
-					})
-
-					continue
-				case strings.HasPrefix(parts[1], "<"):
-					s.Filters = append(s.Filters, nicovideo.Filter{
-						Field:    nicovideo.Field(parts[0]),
-						Operator: nicovideo.OperatorLTE,
-						Values:   []string{parts[1][1:]},
-					})
-
-					continue
-				}
-			}
-
-			s.Filters = append(s.Filters, nicovideo.Filter{
-				Field:    nicovideo.Field(parts[0]),
-				Operator: nicovideo.OperatorEqual,
-				Values:   []string{parts[1]},
-			})
 		default:
 			s.Query += " " + a
 		}

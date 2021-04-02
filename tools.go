@@ -2,6 +2,6 @@
 
 package jaroid
 
-import(
-	_ "https://github.com/go-bindata/go-bindata"
+import (
+	_ "github.com/go-bindata/go-bindata"
 )

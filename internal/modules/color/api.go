@@ -307,7 +307,7 @@ hue:
 > on chromatic spectrum disc. ranged from 0 to
 > 360 as degrees, with meaining 0 and 360 being
 > red, 120 being green and 240 being blue, you
-> can have any integer value inbetween.
+> can have any integer value in between.
 
 > saturation is always assumed to be 100%
 > meaning full chromatic value as opposed to

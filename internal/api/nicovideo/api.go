@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-const baseVideoURI = "https://api.search.nicovideo.jp/api/v2/video/contents/search"
+const baseVideoURI = "https://api.search.nicovideo.jp/api/v2/snapshot/video/contents/search"
 
 // Field of content entry
 type Field string
@@ -107,26 +107,25 @@ type Search struct {
 
 // SearchResult from search
 type SearchResult struct {
+	Data []*SearchItem `json:"data"`
 	Meta struct {
-		Status       int    `json:"status"`
 		ErrorCode    string `json:"errorCode"`
 		ErrorMessage string `json:"errorMessage"`
-		TotalCount   int    `json:"totalCount"`
 		ID           string `json:"id"`
+		Status       int    `json:"status"`
+		TotalCount   int    `json:"totalCount"`
 	} `json:"meta"`
-	Data []*SearchItem `json:"data"`
 }
 
 // SearchItem from search
 type SearchItem struct {
-	SearchItemRaw
-
 	StartTime       time.Time
 	LastCommentTime time.Time
 	CategoryTags    []string
 	Tags            []string
 	TagsExact       []string
 	LockTagsExact   []string
+	SearchItemRaw
 }
 
 // SearchItemRaw used for json response decoding
@@ -134,22 +133,22 @@ type SearchItemRaw struct {
 	ContentID       string `json:"contentId"`
 	Title           string `json:"title"`
 	Description     string `json:"description"`
-	UserID          int    `json:"userId"`
-	ViewCounter     int    `json:"viewCounter"`
-	MylistCounter   int    `json:"mylistCounter"`
-	LengthSeconds   int    `json:"lengthSeconds"`
 	ThumbnailURL    string `json:"thumbnailUrl"`
 	StartTime       string `json:"startTime"`
-	ThreadID        int    `json:"threadId"`
-	CommentCounter  int    `json:"commentCounter"`
 	LastCommentTime string `json:"lastCommentTime"`
 	CategoryTags    string `json:"categoryTags"`
-	ChannelID       int    `json:"channelId"`
 	Tags            string `json:"tags"`
 	TagsExact       string `json:"tagsExact"`
 	LockTagsExact   string `json:"lockTagsExact"`
 	Genre           string `json:"genre"`
 	GenreKeyword    string `json:"genre.keyword"`
+	UserID          int    `json:"userId"`
+	ViewCounter     int    `json:"viewCounter"`
+	MylistCounter   int    `json:"mylistCounter"`
+	LengthSeconds   int    `json:"lengthSeconds"`
+	ThreadID        int    `json:"threadId"`
+	CommentCounter  int    `json:"commentCounter"`
+	ChannelID       int    `json:"channelId"`
 }
 
 func fields(fs []Field) (ss []string) {

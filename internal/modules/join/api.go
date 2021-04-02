@@ -25,6 +25,10 @@ type module struct {
 func (mod *module) Initialize(config *bot.Configuration) error {
 	mod.config = config
 
+	if mod.config.Config.Private.Nicovideo.Backoff == 0 {
+		mod.config.Config.Private.Nicovideo.Backoff = time.Hour
+	}
+
 	config.Discord.AddHandler(mod.handlerGreet)
 	config.Discord.AddHandler(mod.handlerAutorole)
 

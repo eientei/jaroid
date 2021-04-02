@@ -127,17 +127,17 @@ func NewRouter() *Router {
 
 // Route describes command route
 type Route struct {
+	Router      *Router
 	Name        string
-	Alias       []string
 	Description string
 	Matcher     MatcherFunc
 	Handler     HandlerFunc
 	Baked       HandlerFunc
-	Middleware  []MiddlewareFunc
-	Groups      []*Group
-	Router      *Router
 	Data        map[string]interface{}
 	Replies     map[string]*Reply
+	Middleware  []MiddlewareFunc
+	Groups      []*Group
+	Alias       []string
 }
 
 // Set sets route config value

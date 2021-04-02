@@ -7,13 +7,13 @@ import (
 
 // Group groups a number of routes
 type Group struct {
+	Router      *Router
 	Name        string
 	Description string
+	Data        map[string]interface{}
+	RouteSorter RouteSorterFunc
 	Routes      []*Route
 	Middleware  []MiddlewareFunc
-	RouteSorter RouteSorterFunc
-	Router      *Router
-	Data        map[string]interface{}
 }
 
 // SetDescription sets description for group
@@ -59,7 +59,7 @@ func (group *Group) OnCustom(name, desc string, matcher MatcherFunc, handler Han
 	return route
 }
 
-// AddRoute appends route maintaing sorting order
+// AddRoute appends route maintaining sorting order
 func (group *Group) AddRoute(route *Route) {
 	i := sort.Search(len(group.Routes), func(i int) bool {
 		return group.RouteSorter(group.Routes[i], route)

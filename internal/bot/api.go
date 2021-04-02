@@ -2,6 +2,8 @@
 package bot
 
 import (
+	"time"
+
 	"github.com/bwmarrin/discordgo"
 	"github.com/eientei/jaroid/internal/config"
 	"github.com/eientei/jaroid/internal/model"
@@ -27,8 +29,8 @@ type Configuration struct {
 	Log        *logrus.Logger
 	Router     *router.Router
 	Repository *model.Repository
-	Modules    []Module
 	servers    map[string]*server
+	Modules    []Module
 }
 
 func (conf *Configuration) configure(guild *discordgo.Guild) {
@@ -58,6 +60,10 @@ func (conf *Configuration) configure(guild *discordgo.Guild) {
 
 	if prefix == "" {
 		prefix = "!"
+	}
+
+	if conf.Config.Private.Nicovideo.Backoff == 0 {
+		conf.Config.Private.Nicovideo.Backoff = time.Hour
 	}
 
 	s.prefix = prefix

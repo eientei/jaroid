@@ -19,7 +19,7 @@ linters-settings:
     min-len: 3
     min-occurrences: 3
   gocyclo:
-    min-complexity: 30
+    min-complexity: 15
   gofmt:
     simplify: true
   golint:
@@ -30,8 +30,6 @@ linters-settings:
   lll:
     line-length: 120
     tab-width: 1
-  maligned:
-    suggest-new: true
   wsl:
     strict-append: true
     allow-assign-and-call: true
@@ -55,7 +53,6 @@ linters:
     - bodyclose
     - stylecheck
     - golint
-    - interfacer
     - unconvert
     - goconst
     - gocyclo
@@ -63,7 +60,6 @@ linters:
     - gofmt
     - goimports
     - godox
-    - maligned
     - lll
     - unparam
     - gocritic
