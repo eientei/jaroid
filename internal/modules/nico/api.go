@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/url"
 	"regexp"
 	"strconv"
@@ -282,7 +283,7 @@ func (mod *module) commandDownload(ctx *router.Context) error {
 	var format string
 
 	if len(ctx.Args) > 2 {
-		format = ctx.Args[2]
+		format = strings.TrimSpace(ctx.Args[2])
 	}
 
 	if format == "list" {
@@ -291,6 +292,22 @@ func (mod *module) commandDownload(ctx *router.Context) error {
 			ChannelID: msg.ChannelID,
 			MessageID: msg.ID,
 			VideoURL:  urlraw,
+		}, 0, 0)
+	}
+
+	if humanFileSizeExtractor.MatchString(format) || strings.ToLower(format) == "inf" {
+		target := float64(findHumanSize(format))
+
+		if strings.ToLower(format) == "inf" {
+			target = math.MaxFloat64
+		}
+
+		return mod.config.Repository.TaskEnqueue(&TaskList{
+			GuildID:   msg.GuildID,
+			ChannelID: msg.ChannelID,
+			MessageID: msg.ID,
+			VideoURL:  urlraw,
+			Target:    target,
 		}, 0, 0)
 	}
 
@@ -585,7 +602,8 @@ func (mod *module) commandList(ctx *router.Context) error {
 }
 
 const nicoCommandHelp = "```yaml\n" + `
->>> nico.download [format code | list] <url>
+>>> nico.download <url> [format code | list] 
+>>> nico.download <url> [size | inf] 
 
 Download a video from niconico, in given format
 (if specified), or list available formats.
@@ -599,8 +617,16 @@ example:
 > nico.download https://www.nicovideo.jp/watch/sm00 list
 
 example:
-# downloaf video with format code f1
+# download video with format code f1
 > nico.download https://www.nicovideo.jp/watch/sm00 f1
+
+example:
+# download video with maximum est. size less than 50 MB 
+> nico.download https://www.nicovideo.jp/watch/sm00 50M
+
+example:
+# download video with maximum est.size
+> nico.download https://www.nicovideo.jp/watch/sm00 inf
 ` + "```"
 
 const nicoFilterHelp = "```yaml\n" + `

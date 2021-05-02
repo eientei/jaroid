@@ -86,12 +86,20 @@ func (mod *module) handlerMemberAdd(session *discordgo.Session, m *discordgo.Gui
 }
 
 func (mod *module) handlerMemberRemove(session *discordgo.Session, m *discordgo.GuildMemberRemove) {
+	rolemap, err := mod.currentColorRoles(m.GuildID)
+	if err != nil {
+		mod.config.Log.WithError(err).Error("loading roles")
+		return
+	}
+
 	if guild, ok := mod.servers[m.GuildID]; ok {
 		if member, ok := guild.members[m.User.ID]; ok {
 			for _, r := range member {
-				err := mod.deleterole(m.GuildID, m.User.ID, r)
-				if err != nil {
-					mod.config.Log.WithError(err).Error("deleting role", r)
+				if _, ok := rolemap[r]; ok {
+					err := mod.deleterole(m.GuildID, m.User.ID, r)
+					if err != nil {
+						mod.config.Log.WithError(err).Error("deleting role", r)
+					}
 				}
 			}
 		}
@@ -158,23 +166,19 @@ func (mod *module) createrole(guildID string, c colorful.Color) (role *discordgo
 }
 
 func (mod *module) setcolor(session *discordgo.Session, guildID, userID string, c colorful.Color) error {
-	roles, err := mod.config.Discord.GuildRoles(guildID)
+	rolemap, err := mod.currentColorRoles(guildID)
 	if err != nil {
-		return fmt.Errorf("getting roles: %w", err)
+		return err
 	}
 
 	var role, old *discordgo.Role
 
-	rolemap := make(map[string]*discordgo.Role)
-
 	hex := c.Hex()
 
-	for _, r := range roles {
+	for _, r := range rolemap {
 		if r.Name == "color"+hex {
 			role = r
 		}
-
-		rolemap[r.ID] = r
 	}
 
 	member, err := session.GuildMember(guildID, userID)
@@ -183,7 +187,7 @@ func (mod *module) setcolor(session *discordgo.Session, guildID, userID string, 
 	}
 
 	for _, mr := range member.Roles {
-		if mrole, ok := rolemap[mr]; ok && strings.HasPrefix(mrole.Name, "color") {
+		if mrole, ok := rolemap[mr]; ok {
 			old = mrole
 			break
 		}
@@ -223,25 +227,38 @@ func (mod *module) setcolor(session *discordgo.Session, guildID, userID string, 
 	return nil
 }
 
+func (mod *module) currentColorRoles(guildID string) (rolemap map[string]*discordgo.Role, err error) {
+	roles, err := mod.config.Discord.GuildRoles(guildID)
+	if err != nil {
+		return nil, fmt.Errorf("getting roles: %w", err)
+	}
+
+	rolemap = make(map[string]*discordgo.Role)
+
+	for _, r := range roles {
+		if !strings.HasPrefix(r.Name, "color") {
+			continue
+		}
+
+		rolemap[r.ID] = r
+	}
+
+	return
+}
+
 func (mod *module) commandRemove(ctx *router.Context) error {
 	member, err := ctx.Session.GuildMember(ctx.Message.GuildID, ctx.Message.Author.ID)
 	if err != nil {
 		return fmt.Errorf("getting member: %w", err)
 	}
 
-	roles, err := mod.config.Discord.GuildRoles(ctx.Message.GuildID)
+	rolemap, err := mod.currentColorRoles(ctx.Message.GuildID)
 	if err != nil {
-		return fmt.Errorf("getting roles: %w", err)
-	}
-
-	rolemap := make(map[string]*discordgo.Role)
-
-	for _, r := range roles {
-		rolemap[r.ID] = r
+		return err
 	}
 
 	for _, mr := range member.Roles {
-		if mrole, ok := rolemap[mr]; ok && strings.HasPrefix(mrole.Name, "color") {
+		if _, ok := rolemap[mr]; ok {
 			err = mod.config.Discord.GuildMemberRoleRemove(ctx.Message.GuildID, ctx.Message.Author.ID, mr)
 			if err != nil {
 				return fmt.Errorf("removing old role: %w", err)

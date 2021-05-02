@@ -23,7 +23,13 @@ import (
 
 const taskNico = "nico"
 
-var bitrateExtractor = regexp.MustCompile(`@\s*([0-9]+)(\S*)`)
+var vidbitrateExtractor = regexp.MustCompile(`@\s*([0-9]+)(\S*)`)
+
+var audbitrateExtractor = regexp.MustCompile(`aac_([0-9]+)(\S*)bps`)
+
+var humanFileSizeExtractor = regexp.MustCompile(`^\s*([0-9]+)(\S*)`)
+
+var whitespaceSplitter = regexp.MustCompile(`\s+`)
 
 var filenameSanitizer = strings.NewReplacer(
 	"/", "",
@@ -65,10 +71,11 @@ func (TaskDownload) Name() string {
 
 // TaskList provides list of video formats available
 type TaskList struct {
-	GuildID   string `json:"guild_id"`
-	ChannelID string `json:"channel_id"`
-	MessageID string `json:"message_id"`
-	VideoURL  string `json:"video_url"`
+	GuildID   string  `json:"guild_id"`
+	ChannelID string  `json:"channel_id"`
+	MessageID string  `json:"message_id"`
+	VideoURL  string  `json:"video_url"`
+	Target    float64 `json:"target"`
 }
 
 // Scope returns task scope
@@ -216,32 +223,48 @@ func getNicovideoLength(id string) (time.Duration, error) {
 	return dur, nil
 }
 
-func findBitrate(s string) int {
-	matches := bitrateExtractor.FindStringSubmatch(s)
-
-	if len(matches) < 3 {
-		return 0
-	}
-
-	value, err := strconv.ParseUint(matches[1], 10, 64)
+func parseHumanSize(num, suffix string) int {
+	value, err := strconv.ParseUint(num, 10, 64)
 	if err != nil {
 		return 0
 	}
 
-	m := strings.ToLower(matches[2])
+	m := strings.ToLower(suffix)
 
 	switch {
 	case m == "", strings.HasPrefix(m, "b"):
 		return int(value)
 	case strings.HasPrefix(m, "k"):
 		return int(value) * 1024
-	case strings.HasPrefix(s, "m"):
+	case strings.HasPrefix(m, "m"):
 		return int(value) * 1024 * 1024
-	case strings.HasPrefix(s, "g"):
+	case strings.HasPrefix(m, "g"):
 		return int(value) * 1024 * 1024 * 1024
 	}
 
 	return 0
+}
+
+func findHumanSize(s string) int {
+	matches := humanFileSizeExtractor.FindStringSubmatch(s)
+
+	if len(matches) < 3 {
+		return 0
+	}
+
+	return parseHumanSize(matches[1], matches[2])
+}
+
+func findBitrate(s string) int {
+	vidmatches := vidbitrateExtractor.FindStringSubmatch(s)
+
+	if len(vidmatches) < 3 {
+		return 0
+	}
+
+	audmatches := audbitrateExtractor.FindStringSubmatch(s)
+
+	return parseHumanSize(vidmatches[1], vidmatches[2]) + parseHumanSize(audmatches[1], audmatches[2])
 }
 
 var humanFileSuffixes = []string{"B", "KiB", "MiB", "GiB", "TiB", "PiB"}
@@ -257,41 +280,12 @@ func humanFileSize(size float64) string {
 	return fmt.Sprintf("%5.1f%s", size, humanFileSuffixes[i])
 }
 
-func (mod *module) listFormatsVideo(task *TaskList) (err error) {
-	baseid := path.Base(task.VideoURL)
-
-	dur, err := getNicovideoLength(baseid)
-	if err != nil {
-		return err
-	}
-
-	args := append([]string{}, mod.config.Config.Private.Nicovideo.Opts...)
-	args = append(args, "-F")
-	args = append(args, task.VideoURL)
-
-	cmd := exec.Command("youtube-dl", args...)
-
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		mod.config.Log.WithError(err).Error("Getting stdout")
-
-		return err
-	}
-
-	bufread := bufio.NewReader(stdout)
-
-	err = cmd.Start()
-	if err != nil {
-		mod.config.Log.WithError(err).Error("Starting task")
-
-		return err
-	}
-
+func (mod *module) readListFormatsVideo(stdout io.ReadCloser, task *TaskList) (lines []string, err error) {
 	var line string
 
 	last := time.Now()
 
-	var lines []string
+	bufread := bufio.NewReader(stdout)
 
 	for {
 		var tmpline string
@@ -323,6 +317,38 @@ func (mod *module) listFormatsVideo(task *TaskList) (err error) {
 		}
 	}
 
+	return
+}
+
+func (mod *module) listFormatsVideo(task *TaskList) (err error) {
+	baseid := path.Base(task.VideoURL)
+
+	dur, err := getNicovideoLength(baseid)
+	if err != nil {
+		return err
+	}
+
+	args := append([]string{}, mod.config.Config.Private.Nicovideo.Opts...)
+	args = append(args, "-F")
+	args = append(args, task.VideoURL)
+
+	cmd := exec.Command("youtube-dl", args...)
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		mod.config.Log.WithError(err).Error("Getting stdout")
+
+		return err
+	}
+
+	err = cmd.Start()
+	if err != nil {
+		mod.config.Log.WithError(err).Error("Starting task")
+
+		return err
+	}
+
+	lines, err := mod.readListFormatsVideo(stdout, task)
 	if err != nil {
 		mod.config.Log.WithError(err).Error("Reading stdout")
 
@@ -336,14 +362,24 @@ func (mod *module) listFormatsVideo(task *TaskList) (err error) {
 		return err
 	}
 
-	buf := processLengthLines(lines, dur)
+	buf, suggest := processLengthLines(lines, dur, task.Target)
+
+	if task.Target > 0 {
+		return mod.config.Repository.TaskEnqueue(&TaskDownload{
+			GuildID:   task.GuildID,
+			ChannelID: task.ChannelID,
+			MessageID: task.MessageID,
+			VideoURL:  task.VideoURL,
+			Format:    suggest,
+		}, 0, 0)
+	}
 
 	mod.updateMessage(task.GuildID, task.ChannelID, task.MessageID, "```"+buf+"```")
 
 	return nil
 }
 
-func processLengthLines(lines []string, dur time.Duration) string {
+func processLengthLines(lines []string, dur time.Duration, target float64) (out string, suggest string) {
 	var maxlength int
 
 	for _, l := range lines {
@@ -351,6 +387,8 @@ func processLengthLines(lines []string, dur time.Duration) string {
 			maxlength = len(l)
 		}
 	}
+
+	var maxFitting float64
 
 	var buf bytes.Buffer
 
@@ -369,6 +407,12 @@ func processLengthLines(lines []string, dur time.Duration) string {
 
 		size := dur.Seconds() * (float64(bitrate) / 8)
 
+		if size > maxFitting && size <= target {
+			maxFitting = size
+			parts := whitespaceSplitter.Split(l, -1)
+			suggest = parts[0]
+		}
+
 		estimate := humanFileSize(size)
 
 		l += strings.Repeat(" ", maxlength-len(l))
@@ -377,7 +421,7 @@ func processLengthLines(lines []string, dur time.Duration) string {
 		buf.WriteString(l + "\n")
 	}
 
-	return buf.String()
+	return buf.String(), suggest
 }
 
 func (mod *module) readDownloadVideo(task *TaskDownload, bufread *bufio.Reader) (err error) {
