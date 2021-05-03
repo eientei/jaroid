@@ -362,9 +362,12 @@ func (mod *module) listFormatsVideo(task *TaskList) (err error) {
 		return err
 	}
 
-	buf, suggest := processLengthLines(lines, dur, task.Target)
+	buf, suggest, expect := processLengthLines(lines, dur, task.Target)
 
 	if task.Target > 0 {
+		note := fmt.Sprintf("Starting download... (%s, %s)", suggest, expect)
+		mod.updateMessage(task.GuildID, task.ChannelID, task.MessageID, note)
+
 		return mod.config.Repository.TaskEnqueue(&TaskDownload{
 			GuildID:   task.GuildID,
 			ChannelID: task.ChannelID,
@@ -379,7 +382,7 @@ func (mod *module) listFormatsVideo(task *TaskList) (err error) {
 	return nil
 }
 
-func processLengthLines(lines []string, dur time.Duration, target float64) (out string, suggest string) {
+func processLengthLines(lines []string, dur time.Duration, target float64) (out, suggest, expect string) {
 	var maxlength int
 
 	for _, l := range lines {
@@ -407,13 +410,14 @@ func processLengthLines(lines []string, dur time.Duration, target float64) (out 
 
 		size := dur.Seconds() * (float64(bitrate) / 8)
 
+		estimate := humanFileSize(size)
+
 		if size > maxFitting && size <= target {
 			maxFitting = size
 			parts := whitespaceSplitter.Split(l, -1)
 			suggest = parts[0]
+			expect = estimate
 		}
-
-		estimate := humanFileSize(size)
 
 		l += strings.Repeat(" ", maxlength-len(l))
 		l += " " + estimate
@@ -421,7 +425,7 @@ func processLengthLines(lines []string, dur time.Duration, target float64) (out 
 		buf.WriteString(l + "\n")
 	}
 
-	return buf.String(), suggest
+	return buf.String(), suggest, expect
 }
 
 func (mod *module) readDownloadVideo(task *TaskDownload, bufread *bufio.Reader) (err error) {
