@@ -2,7 +2,9 @@
 package join
 
 import (
+	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -12,6 +14,8 @@ import (
 	"github.com/eientei/jaroid/internal/modules/cleanup"
 	"github.com/eientei/jaroid/internal/router"
 )
+
+var errNoGreet = errors.New("no greet")
 
 // New provides module instacne
 func New() bot.Module {
@@ -40,8 +44,36 @@ func (mod *module) Initialize(config *bot.Configuration) error {
 	return nil
 }
 
-func (mod *module) Configure(config *bot.Configuration, guild *discordgo.Guild) {
+func (mod *module) loadIgnorePatterns(guildID string) (m map[string]*regexp.Regexp) {
+	prefix := guildID + ".join.ignore."
 
+	rs, err := mod.config.Client.Keys(prefix + "*").Result()
+	if err != nil {
+		mod.config.Log.WithError(err).Error("fetching ignored join patterns")
+	}
+
+	m = make(map[string]*regexp.Regexp)
+
+	for _, k := range rs {
+		v, err := mod.config.Client.Get(k).Result()
+		if err != nil {
+			mod.config.Log.WithError(err).Errorf("getting key %s", k)
+			continue
+		}
+
+		reg, err := regexp.Compile(v)
+		if err != nil {
+			mod.config.Log.WithError(err).Errorf("compiling pattern %s", reg)
+			continue
+		}
+
+		m[strings.TrimPrefix(k, prefix)] = reg
+	}
+
+	return
+}
+
+func (mod *module) Configure(config *bot.Configuration, guild *discordgo.Guild) {
 }
 
 func (mod *module) Shutdown(config *bot.Configuration) {
@@ -60,6 +92,10 @@ func (mod *module) commandTest(ctx *router.Context) error {
 }
 
 func (mod *module) handlerAutorole(session *discordgo.Session, guildMemberAdd *discordgo.GuildMemberAdd) {
+	if mod.matchUserPatterns(guildMemberAdd.GuildID, guildMemberAdd.User.ID) {
+		return
+	}
+
 	roleID, err := mod.config.Repository.ConfigGet(guildMemberAdd.GuildID, "join", "assign.role")
 	if err != nil {
 		mod.config.Log.WithError(err).Error("Getting role to assign")
@@ -77,24 +113,54 @@ func (mod *module) handlerAutorole(session *discordgo.Session, guildMemberAdd *d
 	}
 }
 
-func (mod *module) handlerGreet(session *discordgo.Session, guildMemberAdd *discordgo.GuildMemberAdd) {
-	greetChannelID, err := mod.config.Repository.ConfigGet(guildMemberAdd.GuildID, "join", "greet.channel")
+func (mod *module) matchUserPatterns(guildID, userID string) bool {
+	user, err := mod.config.Discord.User(userID)
+	if err != nil {
+		return false
+	}
+
+	patterns := mod.loadIgnorePatterns(guildID)
+	for _, p := range patterns {
+		if p.MatchString(user.Username) {
+			mod.config.Log.Info("matched user ID %s username %s against %s", user.ID, user.Username, p.String())
+			return true
+		}
+	}
+
+	return false
+}
+
+func (mod *module) loadGreetingChannelText(guildID string) (greetChannelID, greetText string, err error) {
+	greetChannelID, err = mod.config.Repository.ConfigGet(guildID, "join", "greet.channel")
 	if err != nil {
 		mod.config.Log.WithError(err).Error("Getting greeting channel")
 		return
 	}
 
 	if greetChannelID == "" {
-		return
+		return "", "", errNoGreet
 	}
 
-	greetText, err := mod.config.Repository.ConfigGet(guildMemberAdd.GuildID, "join", "greet.text")
+	greetText, err = mod.config.Repository.ConfigGet(guildID, "join", "greet.text")
 	if err != nil {
 		mod.config.Log.WithError(err).Error("Getting greeting text")
 		return
 	}
 
 	if greetText == "" {
+		return "", "", errNoGreet
+	}
+
+	return
+}
+
+func (mod *module) handlerGreet(session *discordgo.Session, guildMemberAdd *discordgo.GuildMemberAdd) {
+	if mod.matchUserPatterns(guildMemberAdd.GuildID, guildMemberAdd.User.ID) {
+		return
+	}
+
+	greetChannelID, greetText, err := mod.loadGreetingChannelText(guildMemberAdd.GuildID)
+	if err != nil {
 		return
 	}
 
