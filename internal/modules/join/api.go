@@ -114,15 +114,46 @@ func (mod *module) handlerAutorole(session *discordgo.Session, guildMemberAdd *d
 }
 
 func (mod *module) matchUserPatterns(guildID, userID string) bool {
+	s, _ := mod.config.Repository.ConfigGet(guildID, "join", "mintime")
+
+	var dur time.Duration
+
+	var err error
+
+	if s != "" {
+		dur, err = time.ParseDuration(s)
+		if err != nil {
+			mod.config.Log.WithError(err).Errorf("error parsing duration: %s", s)
+
+			return false
+		}
+	}
+
+	ts, err := discordgo.SnowflakeTimestamp(userID)
+	if err != nil {
+		mod.config.Log.WithError(err).Errorf("error parsing snowflakeID: %s", userID)
+
+		return false
+	}
+
+	if dur > 0 && time.Since(ts) < dur {
+		mod.config.Log.Infof("user was created too recently %s: %v < %v", userID, time.Since(ts), dur)
+
+		return false
+	}
+
 	user, err := mod.config.Discord.User(userID)
 	if err != nil {
+		mod.config.Log.WithError(err).Errorf("Getting user %s", userID)
+
 		return false
 	}
 
 	patterns := mod.loadIgnorePatterns(guildID)
 	for _, p := range patterns {
 		if p.MatchString(user.Username) {
-			mod.config.Log.Info("matched user ID %s username %s against %s", user.ID, user.Username, p.String())
+			mod.config.Log.Infof("matched user ID %s username %s against %s", user.ID, user.Username, p.String())
+
 			return true
 		}
 	}
