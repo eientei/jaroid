@@ -139,7 +139,7 @@ func (mod *module) matchUserPatterns(guildID, userID string) bool {
 	if dur > 0 && time.Since(ts) < dur {
 		mod.config.Log.Infof("user was created too recently %s: %v < %v", userID, time.Since(ts), dur)
 
-		return false
+		return true
 	}
 
 	user, err := mod.config.Discord.User(userID)
