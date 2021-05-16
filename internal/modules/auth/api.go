@@ -48,7 +48,19 @@ func (mod *module) Shutdown(config *bot.Configuration) {
 
 }
 
+func containsString(s string, ss ...string) bool {
+	for _, ri := range ss {
+		if ri == s {
+			return true
+		}
+	}
+
+	return false
+}
+
 func (mod *module) checkPermissions(ctx *router.Context, auth *RouteConfig) bool {
+	admrole, _ := mod.config.Repository.ConfigGet(ctx.Message.GuildID, "auth", "admin.role")
+
 	for _, r := range ctx.Message.Member.Roles {
 		role, err := ctx.Session.State.Role(ctx.Message.GuildID, r)
 		if err != nil {
@@ -60,16 +72,12 @@ func (mod *module) checkPermissions(ctx *router.Context, auth *RouteConfig) bool
 			return true
 		}
 
-		for _, ri := range auth.RoleIDs {
-			if ri == r {
-				return true
-			}
+		if auth.Permissions&discordgo.PermissionAdministrator != 0 && r == admrole {
+			return true
 		}
 
-		for _, rn := range auth.RoleNames {
-			if role.Name == rn {
-				return true
-			}
+		if containsString(r, auth.RoleIDs...) || containsString(role.Name, auth.RoleNames...) {
+			return true
 		}
 	}
 

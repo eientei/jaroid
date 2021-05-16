@@ -92,14 +92,22 @@ func (mod *module) commandTest(ctx *router.Context) error {
 }
 
 func (mod *module) handlerAutorole(session *discordgo.Session, guildMemberAdd *discordgo.GuildMemberAdd) {
-	if mod.matchUserPatterns(guildMemberAdd.GuildID, guildMemberAdd.User.ID) {
-		return
-	}
+	var roleID string
 
-	roleID, err := mod.config.Repository.ConfigGet(guildMemberAdd.GuildID, "join", "assign.role")
-	if err != nil {
-		mod.config.Log.WithError(err).Error("Getting role to assign")
-		return
+	var err error
+
+	if mod.matchUserPatterns(guildMemberAdd.GuildID, guildMemberAdd.User.ID) {
+		roleID, err = mod.config.Repository.ConfigGet(guildMemberAdd.GuildID, "join", "assign.altrole")
+		if err != nil {
+			mod.config.Log.WithError(err).Error("Getting role to assign")
+			return
+		}
+	} else {
+		roleID, err = mod.config.Repository.ConfigGet(guildMemberAdd.GuildID, "join", "assign.role")
+		if err != nil {
+			mod.config.Log.WithError(err).Error("Getting role to assign")
+			return
+		}
 	}
 
 	if roleID == "" {
