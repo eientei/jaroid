@@ -76,6 +76,7 @@ type TaskList struct {
 	MessageID string  `json:"message_id"`
 	VideoURL  string  `json:"video_url"`
 	Target    float64 `json:"target"`
+	Force     bool    `json:"force"`
 }
 
 // Scope returns task scope
@@ -362,10 +363,23 @@ func (mod *module) listFormatsVideo(task *TaskList) (err error) {
 		return err
 	}
 
-	buf, suggest, expect := processLengthLines(lines, dur, task.Target)
+	buf, suggest, min := processLengthLines(lines, dur, task.Target)
+
+	if task.Target > 0 && suggest.size == 0 {
+		est := strings.TrimSpace(humanFileSize(min.size))
+		note := fmt.Sprintf("Smallest format available: %s - est. %s", min.name, est)
+		mod.updateMessage(task.GuildID, task.ChannelID, task.MessageID, note)
+
+		if !task.Force {
+			return nil
+		}
+
+		suggest = min
+	}
 
 	if task.Target > 0 {
-		note := fmt.Sprintf("Starting download... (%s, %s)", suggest, expect)
+		est := strings.TrimSpace(humanFileSize(suggest.size))
+		note := fmt.Sprintf("Starting download... (%s, %s)", suggest.name, est)
 		mod.updateMessage(task.GuildID, task.ChannelID, task.MessageID, note)
 
 		return mod.config.Repository.TaskEnqueue(&TaskDownload{
@@ -373,7 +387,7 @@ func (mod *module) listFormatsVideo(task *TaskList) (err error) {
 			ChannelID: task.ChannelID,
 			MessageID: task.MessageID,
 			VideoURL:  task.VideoURL,
-			Format:    suggest,
+			Format:    suggest.name,
 		}, 0, 0)
 	}
 
@@ -382,7 +396,12 @@ func (mod *module) listFormatsVideo(task *TaskList) (err error) {
 	return nil
 }
 
-func processLengthLines(lines []string, dur time.Duration, target float64) (out, suggest, expect string) {
+type formatMatch struct {
+	name string
+	size float64
+}
+
+func processLengthLines(lines []string, dur time.Duration, target float64) (out string, suggest, min formatMatch) {
 	var maxlength int
 
 	for _, l := range lines {
@@ -391,7 +410,7 @@ func processLengthLines(lines []string, dur time.Duration, target float64) (out,
 		}
 	}
 
-	var maxFitting float64
+	var maxFitting, minimum float64
 
 	var buf bytes.Buffer
 
@@ -412,11 +431,22 @@ func processLengthLines(lines []string, dur time.Duration, target float64) (out,
 
 		estimate := humanFileSize(size)
 
+		if minimum == 0 || size < minimum {
+			minimum = size
+			parts := whitespaceSplitter.Split(l, -1)
+			min = formatMatch{
+				name: parts[0],
+				size: size,
+			}
+		}
+
 		if size > maxFitting && size <= target {
 			maxFitting = size
 			parts := whitespaceSplitter.Split(l, -1)
-			suggest = parts[0]
-			expect = estimate
+			suggest = formatMatch{
+				name: parts[0],
+				size: size,
+			}
 		}
 
 		l += strings.Repeat(" ", maxlength-len(l))
@@ -425,7 +455,7 @@ func processLengthLines(lines []string, dur time.Duration, target float64) (out,
 		buf.WriteString(l + "\n")
 	}
 
-	return buf.String(), suggest, expect
+	return buf.String(), suggest, min
 }
 
 func (mod *module) readDownloadVideo(task *TaskDownload, bufread *bufio.Reader) (err error) {

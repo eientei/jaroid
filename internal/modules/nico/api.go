@@ -296,6 +296,13 @@ func (mod *module) commandDownload(ctx *router.Context) error {
 	}
 
 	if humanFileSizeExtractor.MatchString(format) || strings.ToLower(format) == "inf" {
+		var force bool
+
+		if strings.HasSuffix(format, "!") {
+			force = true
+			format = strings.TrimSuffix(format, "!")
+		}
+
 		target := float64(findHumanSize(format))
 
 		if strings.ToLower(format) == "inf" {
@@ -308,6 +315,7 @@ func (mod *module) commandDownload(ctx *router.Context) error {
 			MessageID: msg.ID,
 			VideoURL:  urlraw,
 			Target:    target,
+			Force:     force,
 		}, 0, 0)
 	}
 
@@ -603,7 +611,7 @@ func (mod *module) commandList(ctx *router.Context) error {
 
 const nicoCommandHelp = "```yaml\n" + `
 >>> nico.download <url> [format code | list] 
->>> nico.download <url> [size | inf] 
+>>> nico.download <url> [size[!] | inf] 
 
 Download a video from niconico, in given format
 (if specified), or list available formats.
@@ -623,6 +631,11 @@ example:
 example:
 # download video with maximum est. size less than 50 MB 
 > nico.download https://www.nicovideo.jp/watch/sm00 50M
+
+example:
+# download video with maximum est. size less than 8m or
+# the smallest available
+> nico.download https://www.nicovideo.jp/watch/sm00 8m!
 
 example:
 # download video with maximum est.size
