@@ -39,6 +39,8 @@ var filenameSanitizer = strings.NewReplacer(
 	"'", "",
 )
 
+var confirmRegexp = regexp.MustCompile(`Smallest format available for <([^<]*)> - (\S*)`)
+
 func filenameSanitize(s string) string {
 	s = filenameSanitizer.Replace(s)
 
@@ -74,6 +76,7 @@ type TaskList struct {
 	GuildID   string  `json:"guild_id"`
 	ChannelID string  `json:"channel_id"`
 	MessageID string  `json:"message_id"`
+	UserID    string  `json:"user_id"`
 	VideoURL  string  `json:"video_url"`
 	Target    float64 `json:"target"`
 	Force     bool    `json:"force"`
@@ -366,12 +369,24 @@ func (mod *module) listFormatsVideo(task *TaskList) (err error) {
 	buf, suggest, min := processLengthLines(lines, dur, task.Target)
 
 	if task.Target > 0 && suggest.size == 0 {
-		est := strings.TrimSpace(humanFileSize(min.size))
-		note := fmt.Sprintf("Smallest format available: %s - est. %s", min.name, est)
-		mod.updateMessage(task.GuildID, task.ChannelID, task.MessageID, note)
-
 		if !task.Force {
-			return nil
+			est := strings.TrimSpace(humanFileSize(min.size))
+			note := fmt.Sprintf(
+				"<@%s> Smallest format available for <%s> - %s - est. %s. Download that?",
+				task.UserID,
+				task.VideoURL,
+				min.name,
+				est,
+			)
+
+			mod.updateMessage(task.GuildID, task.ChannelID, task.MessageID, note)
+
+			err = mod.config.Discord.MessageReactionAdd(task.ChannelID, task.MessageID, emojiPositive)
+			if err != nil {
+				return err
+			}
+
+			return mod.config.Discord.MessageReactionAdd(task.ChannelID, task.MessageID, emojiNegative)
 		}
 
 		suggest = min

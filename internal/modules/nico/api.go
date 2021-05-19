@@ -42,6 +42,8 @@ const (
 	emojiFive     = "\x35\xE2\x83\xA3"
 	emojiForward  = "\xE2\x96\xB6"
 	emojiBackward = "\xE2\x97\x80"
+	emojiPositive = "\xE2\x9C\x85"
+	emojiNegative = "\xE2\x9D\x8E"
 )
 
 // New provides module instacne
@@ -313,6 +315,7 @@ func (mod *module) commandDownload(ctx *router.Context) error {
 			GuildID:   msg.GuildID,
 			ChannelID: msg.ChannelID,
 			MessageID: msg.ID,
+			UserID:    ctx.Message.Author.ID,
 			VideoURL:  urlraw,
 			Target:    target,
 			Force:     force,
@@ -415,6 +418,51 @@ func (mod *module) renderSelection(session *discordgo.Session, msg *discordgo.Me
 	}
 }
 
+func (mod *module) handlerReactionAddDownload(
+	session *discordgo.Session,
+	messageReactionAdd *discordgo.MessageReactionAdd,
+	msg *discordgo.Message,
+) {
+	var found bool
+
+	for _, u := range msg.Mentions {
+		if u.ID == messageReactionAdd.UserID {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		return
+	}
+
+	switch messageReactionAdd.Emoji.Name {
+	default:
+		return
+	case emojiPositive, emojiNegative:
+	}
+
+	_ = session.MessageReactionRemove(msg.ChannelID, msg.ID, emojiNegative, "@me")
+	_ = session.MessageReactionRemove(msg.ChannelID, msg.ID, emojiPositive, "@me")
+
+	if messageReactionAdd.Emoji.Name == emojiNegative {
+		return
+	}
+
+	parts := confirmRegexp.FindStringSubmatch(msg.Content)
+	if len(parts) != 3 {
+		return
+	}
+
+	_ = mod.config.Repository.TaskEnqueue(&TaskDownload{
+		GuildID:   msg.GuildID,
+		ChannelID: msg.ChannelID,
+		MessageID: msg.ID,
+		VideoURL:  parts[1],
+		Format:    parts[2],
+	}, 0, 0)
+}
+
 func (mod *module) handlerReactionAdd(session *discordgo.Session, messageReactionAdd *discordgo.MessageReactionAdd) {
 	msg, err := session.ChannelMessage(messageReactionAdd.ChannelID, messageReactionAdd.MessageID)
 	if err != nil {
@@ -428,6 +476,8 @@ func (mod *module) handlerReactionAdd(session *discordgo.Session, messageReactio
 
 	prefix := "nico:" + messageReactionAdd.UserID + ":"
 	if !strings.HasPrefix(msg.Content, prefix) {
+		mod.handlerReactionAddDownload(session, messageReactionAdd, msg)
+
 		return
 	}
 
