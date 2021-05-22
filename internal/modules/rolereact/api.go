@@ -9,6 +9,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/eientei/jaroid/internal/bot"
+	"github.com/eientei/jaroid/internal/modules/auth"
 	"github.com/eientei/jaroid/internal/router"
 )
 
@@ -44,6 +45,11 @@ func (mod *module) Initialize(config *bot.Configuration) error {
 	config.Discord.AddHandler(mod.handlerReactionRemove)
 
 	group := config.Router.Group("rolereact").SetDescription("reaction-based roles")
+
+	group.Set(auth.RouteConfigKey, &auth.RouteConfig{
+		Permissions: discordgo.PermissionAdministrator,
+	})
+
 	group.On("rolereact.enable", "enable reaction roles for message id", mod.commandEnable)
 	group.On("rolereact.disable", "disable reaction roles for message id", mod.commandDisable)
 	group.On("rolereact.help", "provides documentation", mod.commandHelp)
@@ -301,6 +307,8 @@ emojis.
 
 When disabled, bot will remove own reactions and all users
 from associated roles.
+
+If you edited the message, call enable again.
 
 message example:
 @role1Mention emoji1 some text
