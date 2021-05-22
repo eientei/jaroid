@@ -3,12 +3,16 @@ package bot
 import (
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 )
 
 // Bot is a main implementation of bot
 type Bot struct {
 	Configuration
+	m           *sync.RWMutex
+	servers     map[string]*server
+	roleModules []RoleModule
 }
 
 // Serve starts bot serving loop and blocks until exit

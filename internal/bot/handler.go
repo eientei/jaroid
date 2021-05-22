@@ -7,10 +7,10 @@ import (
 )
 
 func (bot *Bot) handlerMessageCreate(session *discordgo.Session, messageCreate *discordgo.MessageCreate) {
-	if s, ok := bot.servers[messageCreate.GuildID]; ok {
-		if strings.HasPrefix(messageCreate.Content, s.prefix) {
-			_ = bot.Router.Dispatch(session, s.prefix, session.State.User.ID, messageCreate.Message)
-		}
+	guild := bot.guild(messageCreate.GuildID)
+
+	if strings.HasPrefix(messageCreate.Content, guild.prefix) {
+		_ = bot.Router.Dispatch(session, guild.prefix, session.State.User.ID, messageCreate.Message)
 	}
 }
 
@@ -27,10 +27,10 @@ func (bot *Bot) handlerMessageUpdate(session *discordgo.Session, messageUpdate *
 		}
 	}
 
-	if s, ok := bot.servers[messageUpdate.GuildID]; ok {
-		if strings.HasPrefix(messageUpdate.Content, s.prefix) {
-			_ = bot.Router.Dispatch(session, s.prefix, session.State.User.ID, messageUpdate.Message)
-		}
+	guild := bot.guild(messageUpdate.GuildID)
+
+	if strings.HasPrefix(messageUpdate.Content, guild.prefix) {
+		_ = bot.Router.Dispatch(session, guild.prefix, session.State.User.ID, messageUpdate.Message)
 	}
 }
 
@@ -39,5 +39,14 @@ func (bot *Bot) handlerGuildCreate(_ *discordgo.Session, guildCreate *discordgo.
 		m.Configure(&bot.Configuration, guildCreate.Guild)
 	}
 
-	bot.configure(guildCreate.Guild)
+	s := bot.guild(guildCreate.ID)
+
+	bot.m.Lock()
+	bot.configure(s, guildCreate.Guild)
+	bot.m.Unlock()
+
+	err := bot.Discord.RequestGuildMembers(guildCreate.ID, "", 0, false)
+	if err != nil {
+		bot.Log.WithError(err).Error("requesting members", guildCreate)
+	}
 }

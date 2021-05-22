@@ -24,7 +24,7 @@ type module struct {
 func (mod *module) Initialize(config *bot.Configuration) error {
 	mod.config = config
 
-	config.Router.AppendMiddleware(mod.middlewareCleanup)
+	config.Router.AppendMiddleware(mod.middlewareReply)
 
 	return nil
 }
@@ -37,9 +37,13 @@ func (mod *module) Shutdown(config *bot.Configuration) {
 
 }
 
-func (mod *module) middlewareCleanup(handler router.HandlerFunc) router.HandlerFunc {
+func (mod *module) middlewareReply(handler router.HandlerFunc) router.HandlerFunc {
 	return func(ctx *router.Context) error {
 		origerr := handler(ctx)
+		if origerr == bot.ErrNoReply {
+			return nil
+		}
+
 		if origerr != nil {
 			mod.config.Log.WithError(origerr).
 				WithField("route", ctx.Route).

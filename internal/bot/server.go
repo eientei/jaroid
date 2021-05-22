@@ -1,5 +1,10 @@
 package bot
 
+import "sync"
+
 type server struct {
-	prefix string
+	roles   map[string]map[string]struct{}
+	members map[string]map[string]struct{}
+	m       *sync.RWMutex
+	prefix  string
 }

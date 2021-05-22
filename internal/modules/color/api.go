@@ -19,8 +19,7 @@ var (
 )
 
 type server struct {
-	roles   map[string]map[string]bool
-	members map[string][]string
+	colorroles map[string]*discordgo.Role
 }
 
 // New provides module instacne
@@ -38,11 +37,6 @@ type module struct {
 func (mod *module) Initialize(config *bot.Configuration) error {
 	mod.config = config
 
-	config.Discord.AddHandler(mod.handlerMembersChunk)
-	config.Discord.AddHandler(mod.handlerMemberUpdate)
-	config.Discord.AddHandler(mod.handlerMemberAdd)
-	config.Discord.AddHandler(mod.handlerMemberRemove)
-
 	group := config.Router.Group("color").SetDescription("color roles")
 	group.OnAlias("color.set", "sets colored role", []string{"color"}, mod.commandSet)
 	group.On("color.remove", "removes colored role", mod.commandRemove)
@@ -51,103 +45,58 @@ func (mod *module) Initialize(config *bot.Configuration) error {
 	return nil
 }
 
-func (mod *module) handlerMembersChunk(session *discordgo.Session, chunk *discordgo.GuildMembersChunk) {
-	if _, ok := mod.servers[chunk.GuildID]; ok {
-		for _, m := range chunk.Members {
-			mod.memberSync(m)
-		}
-	}
-}
-
-func (mod *module) memberSync(m *discordgo.Member) {
-	if guild, ok := mod.servers[m.GuildID]; ok {
-		for _, r := range guild.members[m.User.ID] {
-			if known, ok := guild.roles[r]; ok {
-				delete(known, m.User.ID)
-			}
-		}
-
-		for _, r := range m.Roles {
-			known, ok := guild.roles[r]
-			if !ok {
-				known = make(map[string]bool)
-				guild.roles[r] = known
-			}
-
-			known[m.User.ID] = true
-		}
-
-		guild.members[m.User.ID] = m.Roles
-	}
-}
-
-func (mod *module) handlerMemberAdd(session *discordgo.Session, m *discordgo.GuildMemberAdd) {
-	mod.memberSync(m.Member)
-}
-
-func (mod *module) handlerMemberRemove(session *discordgo.Session, m *discordgo.GuildMemberRemove) {
-	rolemap, err := mod.currentColorRoles(m.GuildID)
-	if err != nil {
-		mod.config.Log.WithError(err).Error("loading roles")
+func (mod *module) RolesChanged(guildID, userID string, added, removed []string) {
+	guild, ok := mod.servers[guildID]
+	if !ok {
 		return
 	}
 
-	if guild, ok := mod.servers[m.GuildID]; ok {
-		if member, ok := guild.members[m.User.ID]; ok {
-			for _, r := range member {
-				if _, ok := rolemap[r]; ok {
-					err := mod.deleterole(m.GuildID, m.User.ID, r)
-					if err != nil {
-						mod.config.Log.WithError(err).Error("deleting role", r)
-					}
-				}
-			}
+	for _, r := range added {
+		if _, ok := guild.colorroles[r]; ok {
+			continue
 		}
+
+		role, err := mod.config.Discord.State.Role(guildID, r)
+		if err != nil {
+			continue
+		}
+
+		if !strings.HasPrefix(role.Name, "color") {
+			continue
+		}
+
+		guild.colorroles[r] = role
 	}
 
-	m.Member.Roles = []string{}
-	mod.memberSync(m.Member)
-}
+	for _, r := range removed {
+		role, ok := guild.colorroles[r]
+		if !ok {
+			continue
+		}
 
-func (mod *module) handlerMemberUpdate(session *discordgo.Session, m *discordgo.GuildMemberUpdate) {
-	mod.memberSync(m.Member)
+		if !mod.config.HasMembers(guildID, r) {
+			mod.config.Log.Infof("deleting role %s.%s (%s)", guildID, role.ID, role.Name)
+
+			err := mod.config.Discord.GuildRoleDelete(guildID, r)
+			if err != nil {
+				mod.config.Log.Errorf("deleting role %s.%s: %v", guildID, r, err)
+			}
+
+			delete(guild.colorroles, r)
+		}
+	}
 }
 
 func (mod *module) Configure(config *bot.Configuration, guild *discordgo.Guild) {
 	if _, ok := mod.servers[guild.ID]; !ok {
 		mod.servers[guild.ID] = &server{
-			roles:   make(map[string]map[string]bool),
-			members: make(map[string][]string),
-		}
-
-		err := config.Discord.RequestGuildMembers(guild.ID, "", 0, false)
-		if err != nil {
-			mod.config.Log.WithError(err).Error("requesting members", guild)
+			colorroles: make(map[string]*discordgo.Role),
 		}
 	}
 }
 
 func (mod *module) Shutdown(config *bot.Configuration) {
 
-}
-
-func (mod *module) deleterole(guildID, userID, roleID string) (err error) {
-	if guild, ok := mod.servers[guildID]; ok {
-		if r, ok := guild.roles[roleID]; ok {
-			delete(r, userID)
-
-			if len(r) == 0 {
-				err = mod.config.Discord.GuildRoleDelete(guildID, roleID)
-				if err != nil {
-					return fmt.Errorf("deleting old role: %w", err)
-				}
-
-				delete(guild.roles, roleID)
-			}
-		}
-	}
-
-	return nil
 }
 
 func (mod *module) createrole(guildID string, c colorful.Color) (role *discordgo.Role, err error) {
@@ -165,31 +114,23 @@ func (mod *module) createrole(guildID string, c colorful.Color) (role *discordgo
 	return mod.config.Discord.GuildRoleEdit(guildID, role.ID, "color"+hex, v, false, 0, false)
 }
 
-func (mod *module) setcolor(session *discordgo.Session, guildID, userID string, c colorful.Color) error {
-	rolemap, err := mod.currentColorRoles(guildID)
-	if err != nil {
-		return err
+func (mod *module) setcolor(session *discordgo.Session, guildID, userID string, c colorful.Color) (err error) {
+	guild, ok := mod.servers[guildID]
+	if !ok {
+		return nil
 	}
 
 	var role, old *discordgo.Role
 
 	hex := c.Hex()
 
-	for _, r := range rolemap {
+	for _, r := range guild.colorroles {
 		if r.Name == "color"+hex {
 			role = r
 		}
-	}
 
-	member, err := session.GuildMember(guildID, userID)
-	if err != nil {
-		return fmt.Errorf("getting member: %w", err)
-	}
-
-	for _, mr := range member.Roles {
-		if mrole, ok := rolemap[mr]; ok {
-			old = mrole
-			break
+		if mod.config.HasRole(guildID, userID, r.ID) {
+			old = r
 		}
 	}
 
@@ -201,73 +142,30 @@ func (mod *module) setcolor(session *discordgo.Session, guildID, userID string, 
 	}
 
 	if old != nil {
-		err = mod.config.Discord.GuildMemberRoleRemove(guildID, userID, old.ID)
+		err = session.GuildMemberRoleRemove(guildID, userID, old.ID)
 		if err != nil {
 			return fmt.Errorf("removing old role: %w", err)
 		}
-
-		err = mod.deleterole(guildID, userID, old.ID)
-		if err != nil {
-			return fmt.Errorf("deleting role: %w", err)
-		}
 	}
 
-	err = mod.config.Discord.GuildMemberRoleAdd(guildID, userID, role.ID)
+	err = session.GuildMemberRoleAdd(guildID, userID, role.ID)
 	if err != nil {
 		return fmt.Errorf("adding new role: %w", err)
 	}
 
-	m, err := mod.config.Discord.GuildMember(guildID, userID)
-	if err != nil {
-		return fmt.Errorf("getting updated member: %w", err)
-	}
-
-	mod.memberSync(m)
-
 	return nil
 }
 
-func (mod *module) currentColorRoles(guildID string) (rolemap map[string]*discordgo.Role, err error) {
-	roles, err := mod.config.Discord.GuildRoles(guildID)
-	if err != nil {
-		return nil, fmt.Errorf("getting roles: %w", err)
-	}
-
-	rolemap = make(map[string]*discordgo.Role)
-
-	for _, r := range roles {
-		if !strings.HasPrefix(r.Name, "color") {
-			continue
-		}
-
-		rolemap[r.ID] = r
-	}
-
-	return
-}
-
 func (mod *module) commandRemove(ctx *router.Context) error {
-	member, err := ctx.Session.GuildMember(ctx.Message.GuildID, ctx.Message.Author.ID)
-	if err != nil {
-		return fmt.Errorf("getting member: %w", err)
+	guild, ok := mod.servers[ctx.Message.GuildID]
+	if !ok {
+		return nil
 	}
 
-	rolemap, err := mod.currentColorRoles(ctx.Message.GuildID)
-	if err != nil {
-		return err
-	}
-
-	for _, mr := range member.Roles {
-		if _, ok := rolemap[mr]; ok {
-			err = mod.config.Discord.GuildMemberRoleRemove(ctx.Message.GuildID, ctx.Message.Author.ID, mr)
-			if err != nil {
-				return fmt.Errorf("removing old role: %w", err)
-			}
-
-			err = mod.deleterole(ctx.Message.GuildID, ctx.Message.Author.ID, mr)
-			if err != nil {
-				return fmt.Errorf("deleting role: %w", err)
-			}
+	for cr := range guild.colorroles {
+		err := mod.config.Discord.GuildMemberRoleRemove(ctx.Message.GuildID, ctx.Message.Author.ID, cr)
+		if err != nil {
+			return fmt.Errorf("removing role: %w", err)
 		}
 	}
 

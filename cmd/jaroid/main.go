@@ -4,6 +4,8 @@ import (
 	"flag"
 	"os"
 
+	"github.com/eientei/jaroid/internal/modules/rolereact"
+
 	"github.com/eientei/jaroid/internal/modules/pin"
 
 	"github.com/eientei/jaroid/internal/modules/logdb"
@@ -90,6 +92,7 @@ func main() {
 			deletereact.New(),
 			logdb.New(),
 			pin.New(),
+			rolereact.New(),
 		},
 	})
 
