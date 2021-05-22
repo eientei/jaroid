@@ -190,11 +190,17 @@ func (mod *module) parseRoleEmoji(content string) (roles []*roleEmoji) {
 }
 
 func (mod *module) commandEnable(ctx *router.Context) error {
-	if len(ctx.Args) < 2 {
-		return ErrInvalidArgumentNumber
+	var messageID string
+
+	if ctx.Message.MessageReference != nil {
+		messageID = ctx.Message.MessageReference.MessageID
+	} else if len(ctx.Args) > 1 {
+		messageID = ctx.Args.Get(1)
 	}
 
-	messageID := ctx.Args.Get(1)
+	if messageID == "" {
+		return ErrInvalidArgumentNumber
+	}
 
 	msg, err := mod.config.Discord.ChannelMessage(ctx.Message.ChannelID, messageID)
 	if err != nil {
@@ -254,11 +260,17 @@ func (mod *module) removeAllUsers(guildID, channelID, messageID, emoji, role str
 }
 
 func (mod *module) commandDisable(ctx *router.Context) error {
-	if len(ctx.Args) < 2 {
-		return ErrInvalidArgumentNumber
+	var messageID string
+
+	if ctx.Message.MessageReference != nil {
+		messageID = ctx.Message.MessageReference.MessageID
+	} else if len(ctx.Args) > 1 {
+		messageID = ctx.Args.Get(1)
 	}
 
-	messageID := ctx.Args.Get(1)
+	if messageID == "" {
+		return ErrInvalidArgumentNumber
+	}
 
 	msg, err := mod.config.Discord.ChannelMessage(ctx.Message.ChannelID, messageID)
 	if err != nil {
@@ -295,6 +307,9 @@ func (mod *module) commandHelp(ctx *router.Context) error {
 usage:
 > rolereact.enable <messageID>
 > rolereact.disable <messageID>
+
+alternatively: reply the message with roles with
+rolereact.enable command
 
 Message can have N lines, each having a role mention and
 a list of emojis, that would grant this role.
