@@ -115,13 +115,18 @@ func (mod *module) commandPin(ctx *router.Context) error {
 		return ErrNotAllowed
 	}
 
-	if len(ctx.Args) < 2 {
+	var messageID string
+
+	switch {
+	case ctx.Message.MessageReference != nil:
+		messageID = ctx.Message.MessageReference.MessageID
+	case len(ctx.Args) > 1:
+		messageID = ctx.Args[1]
+	default:
 		return ErrInvalidArgumentNumber
 	}
 
-	mid := ctx.Args[1]
-
-	_, err = ctx.Session.ChannelMessage(ctx.Message.ChannelID, mid)
+	_, err = ctx.Session.ChannelMessage(ctx.Message.ChannelID, messageID)
 	if err != nil {
 		return ErrInvalidMessageID
 	}
@@ -132,12 +137,12 @@ func (mod *module) commandPin(ctx *router.Context) error {
 	}
 
 	for _, m := range msgs {
-		if m.ID == mid {
+		if m.ID == messageID {
 			return ErrAlreadyPinned
 		}
 	}
 
-	return ctx.Session.ChannelMessagePin(ctx.Message.ChannelID, mid)
+	return ctx.Session.ChannelMessagePin(ctx.Message.ChannelID, messageID)
 }
 
 func (mod *module) commandUnpin(ctx *router.Context) error {
@@ -150,13 +155,18 @@ func (mod *module) commandUnpin(ctx *router.Context) error {
 		return ErrNotAllowed
 	}
 
-	if len(ctx.Args) < 2 {
+	var messageID string
+
+	switch {
+	case ctx.Message.MessageReference != nil:
+		messageID = ctx.Message.MessageReference.MessageID
+	case len(ctx.Args) > 1:
+		messageID = ctx.Args[1]
+	default:
 		return ErrInvalidArgumentNumber
 	}
 
-	mid := ctx.Args[1]
-
-	_, err = ctx.Session.ChannelMessage(ctx.Message.ChannelID, mid)
+	_, err = ctx.Session.ChannelMessage(ctx.Message.ChannelID, messageID)
 	if err != nil {
 		return ErrInvalidMessageID
 	}
@@ -169,7 +179,7 @@ func (mod *module) commandUnpin(ctx *router.Context) error {
 	found := false
 
 	for _, m := range msgs {
-		if m.ID == mid {
+		if m.ID == messageID {
 			found = true
 			break
 		}
@@ -179,5 +189,5 @@ func (mod *module) commandUnpin(ctx *router.Context) error {
 		return ErrNotPinned
 	}
 
-	return ctx.Session.ChannelMessageUnpin(ctx.Message.ChannelID, mid)
+	return ctx.Session.ChannelMessageUnpin(ctx.Message.ChannelID, messageID)
 }
