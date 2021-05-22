@@ -44,8 +44,8 @@ func (mod *module) Initialize(config *bot.Configuration) error {
 	config.Discord.AddHandler(mod.handlerReactionRemove)
 
 	group := config.Router.Group("rolereact").SetDescription("reaction-based roles")
-	group.On("rolereact.enable", "enable reaction based-roles for message id", mod.commandEnable)
-	group.On("rolereact.disable", "disable reaction based-roles for message id", mod.commandDisable)
+	group.On("rolereact.enable", "enable reaction roles for message id", mod.commandEnable)
+	group.On("rolereact.disable", "disable reaction roles for message id", mod.commandDisable)
 	group.On("rolereact.help", "provides documentation", mod.commandHelp)
 
 	return nil
