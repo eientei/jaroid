@@ -15,6 +15,8 @@ import (
 
 var roleRegexp = regexp.MustCompile(`<@&(\d+)>`)
 
+var numRegexp = regexp.MustCompile(`\d+`)
+
 var emojiRegexp = regexp.MustCompile(`((` +
 	`\x{00a9}|\x{00ae}|` +
 	`[\x{2000}-\x{3300}]|` +
@@ -190,18 +192,24 @@ func (mod *module) parseRoleEmoji(content string) (roles []*roleEmoji) {
 }
 
 func (mod *module) commandEnable(ctx *router.Context) error {
-	var messageID string
+	var channelID, messageID string
 
 	switch {
 	case ctx.Message.MessageReference != nil:
 		messageID = ctx.Message.MessageReference.MessageID
+		channelID = ctx.Message.MessageReference.ChannelID
 	case len(ctx.Args) > 1:
 		messageID = ctx.Args[1]
+		channelID = ctx.Message.ChannelID
 	default:
 		return ErrInvalidArgumentNumber
 	}
 
-	msg, err := mod.config.Discord.ChannelMessage(ctx.Message.ChannelID, messageID)
+	if len(ctx.Args) > 2 {
+		channelID = numRegexp.FindString(ctx.Args[2])
+	}
+
+	msg, err := mod.config.Discord.ChannelMessage(channelID, messageID)
 	if err != nil {
 		return err
 	}
@@ -210,7 +218,7 @@ func (mod *module) commandEnable(ctx *router.Context) error {
 
 	for _, r := range roles {
 		for _, e := range r.emojis {
-			err = mod.config.Discord.MessageReactionAdd(ctx.Message.ChannelID, messageID, e)
+			err = mod.config.Discord.MessageReactionAdd(channelID, messageID, e)
 			if err != nil {
 				return err
 			}
@@ -259,18 +267,24 @@ func (mod *module) removeAllUsers(guildID, channelID, messageID, emoji, role str
 }
 
 func (mod *module) commandDisable(ctx *router.Context) error {
-	var messageID string
+	var channelID, messageID string
 
 	switch {
 	case ctx.Message.MessageReference != nil:
 		messageID = ctx.Message.MessageReference.MessageID
+		channelID = ctx.Message.MessageReference.ChannelID
 	case len(ctx.Args) > 1:
 		messageID = ctx.Args[1]
+		channelID = ctx.Message.ChannelID
 	default:
 		return ErrInvalidArgumentNumber
 	}
 
-	msg, err := mod.config.Discord.ChannelMessage(ctx.Message.ChannelID, messageID)
+	if len(ctx.Args) > 2 {
+		channelID = numRegexp.FindString(ctx.Args[2])
+	}
+
+	msg, err := mod.config.Discord.ChannelMessage(channelID, messageID)
 	if err != nil {
 		return err
 	}
@@ -285,13 +299,13 @@ func (mod *module) commandDisable(ctx *router.Context) error {
 		role := mod.findRole(roleEmojis, msg, r.Emoji.APIName())
 
 		if role != "" {
-			err = mod.removeAllUsers(ctx.Message.GuildID, ctx.Message.ChannelID, messageID, r.Emoji.APIName(), role)
+			err = mod.removeAllUsers(ctx.Message.GuildID, channelID, messageID, r.Emoji.APIName(), role)
 			if err != nil {
 				return err
 			}
 		}
 
-		err = mod.config.Discord.MessageReactionRemove(ctx.Message.ChannelID, messageID, r.Emoji.APIName(), "@me")
+		err = mod.config.Discord.MessageReactionRemove(channelID, messageID, r.Emoji.APIName(), "@me")
 		if err != nil {
 			return err
 		}
@@ -303,8 +317,8 @@ func (mod *module) commandDisable(ctx *router.Context) error {
 func (mod *module) commandHelp(ctx *router.Context) error {
 	return ctx.ReplyEmbed("```yaml\n" + `
 usage:
-> rolereact.enable <messageID>
-> rolereact.disable <messageID>
+> rolereact.enable <messageID> [channelID]
+> rolereact.disable <messageID> [channelID]
 
 alternatively: reply the message with roles with
 rolereact.* command
@@ -321,7 +335,8 @@ emojis.
 When disabled, bot will remove own reactions and all users
 from associated roles.
 
-If you edited the message, call enable again.
+If you edited the message changing roles or emojis, call
+enable again.
 
 message example:
 @role1Mention emoji1 some text
