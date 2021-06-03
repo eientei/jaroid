@@ -692,7 +692,8 @@ example:
 > nico.download https://www.nicovideo.jp/watch/sm00 inf
 ` + "```"
 
-const nicoFilterHelp = "```yaml\n" + `
+const nicoFilterHelp = "see https://site.nicovideo.jp/search-api-docs/search.html\n" +
+	"```yaml\n" + `
 >>> nico.search <filters>
 
 Search for videos using given filters and sortings
@@ -704,8 +705,14 @@ fields:
 - userId                              # user numeric ID
 - title                               # video title
 - tags                                # video tags
+- tagsExact                           # exact tags
+- categoryTags                        # category tags
+- lockTagsExact                       # locked tags
+- genre.keyword                       # genre keyword
 - genre                               # video genre
+- thumbnailUrl                        # thumbnail url
 - startTime                           # publishing time
+- lengthSeconds                       # length in seconds
 - lastCommentTime                     # last comment time
 - description                         # description
 - viewCounter                         # number of views
