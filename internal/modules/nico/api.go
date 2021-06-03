@@ -692,8 +692,7 @@ example:
 > nico.download https://www.nicovideo.jp/watch/sm00 inf
 ` + "```"
 
-const nicoFilterHelp = "see https://site.nicovideo.jp/search-api-docs/search.html\n" +
-	"```yaml\n" + `
+const nicoFilterHelp = "```yaml\n" + `
 >>> nico.search <filters>
 
 Search for videos using given filters and sortings
@@ -744,9 +743,12 @@ sorts:>
 > -mylistCounter
 
 default:
+
 # used if none of sorts or targets are spceified
 > %title %tags %description -viewCounter
+` + "```\nsee https://site.nicovideo.jp/search-api-docs/search.html"
 
+const nicoFilterHelpExamples = "```yaml\n" + `
 example:
 # search "cookie" at title only
 > cookie %title
@@ -774,5 +776,10 @@ func (mod *module) commandHelp(ctx *router.Context) error {
 		return err
 	}
 
-	return ctx.ReplyEmbed(nicoFilterHelp)
+	err = ctx.ReplyEmbed(nicoFilterHelp)
+	if err != nil {
+		return err
+	}
+
+	return ctx.ReplyEmbed(nicoFilterHelpExamples)
 }
