@@ -48,40 +48,8 @@ func (mod *module) Shutdown(config *bot.Configuration) {
 
 }
 
-func containsString(s string, ss ...string) bool {
-	for _, ri := range ss {
-		if ri == s {
-			return true
-		}
-	}
-
-	return false
-}
-
 func (mod *module) checkPermissions(ctx *router.Context, auth *RouteConfig) bool {
-	admrole, _ := mod.config.Repository.ConfigGet(ctx.Message.GuildID, "auth", "admin.role")
-
-	for _, r := range ctx.Message.Member.Roles {
-		role, err := ctx.Session.State.Role(ctx.Message.GuildID, r)
-		if err != nil {
-			mod.config.Log.WithError(err).Error("Loading role", ctx.Message.GuildID, r)
-			continue
-		}
-
-		if auth.Permissions != 0 && role.Permissions&auth.Permissions != 0 {
-			return true
-		}
-
-		if auth.Permissions&discordgo.PermissionAdministrator != 0 && r == admrole {
-			return true
-		}
-
-		if containsString(r, auth.RoleIDs...) || containsString(role.Name, auth.RoleNames...) {
-			return true
-		}
-	}
-
-	return false
+	return mod.config.HasPermission(ctx.Message, auth.Permissions, auth.RoleIDs, auth.RoleNames)
 }
 
 func (mod *module) middlewareAuth(handler router.HandlerFunc) router.HandlerFunc {

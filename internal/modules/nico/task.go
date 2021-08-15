@@ -3,6 +3,7 @@ package nico
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -59,6 +60,7 @@ type TaskDownload struct {
 	MessageID string `json:"message_id"`
 	VideoURL  string `json:"video_url"`
 	Format    string `json:"format"`
+	UserID    string `json:"user_id"`
 }
 
 // Scope returns task scope
@@ -159,7 +161,7 @@ func (mod *module) downloadSend(task *TaskDownload, fpath string) {
 		mod.config.Log.WithError(err).Error("Editing message", task.GuildID, task.ChannelID, task.MessageID)
 	}
 
-	err = mod.config.Repository.TaskEnqueue(&TaskCleanup{
+	_, err = mod.config.Repository.TaskEnqueue(&TaskCleanup{
 		GuildID:   task.GuildID,
 		ChannelID: task.ChannelID,
 		MessageID: task.MessageID,
@@ -393,17 +395,25 @@ func (mod *module) listFormatsVideo(task *TaskList) (err error) {
 	}
 
 	if task.Target > 0 {
-		est := strings.TrimSpace(humanFileSize(suggest.size))
-		note := fmt.Sprintf("Starting download... (%s, %s)", suggest.name, est)
-		mod.updateMessage(task.GuildID, task.ChannelID, task.MessageID, note)
+		var id string
 
-		return mod.config.Repository.TaskEnqueue(&TaskDownload{
+		id, err = mod.config.Repository.TaskEnqueue(&TaskDownload{
 			GuildID:   task.GuildID,
 			ChannelID: task.ChannelID,
 			MessageID: task.MessageID,
 			VideoURL:  task.VideoURL,
 			Format:    suggest.name,
+			UserID:    task.UserID,
 		}, 0, 0)
+
+		est := strings.TrimSpace(humanFileSize(suggest.size))
+		note := fmt.Sprintf(id+" Starting download... (%s, %s)", suggest.name, est)
+
+		mod.updateMessage(task.GuildID, task.ChannelID, task.MessageID, note)
+
+		_ = mod.config.Discord.MessageReactionAdd(task.ChannelID, task.MessageID, emojiStop)
+
+		return err
 	}
 
 	mod.updateMessage(task.GuildID, task.ChannelID, task.MessageID, "```"+buf+"```")
@@ -473,10 +483,23 @@ func processLengthLines(lines []string, dur time.Duration, target float64) (out 
 	return buf.String(), suggest, min
 }
 
-func (mod *module) readDownloadVideo(task *TaskDownload, bufread *bufio.Reader) (err error) {
+func (mod *module) readDownloadVideoLoop(
+	ctx context.Context,
+	id string,
+	task *TaskDownload,
+	bufread *bufio.Reader,
+	errch chan error,
+) {
+	last := time.Now()
+
 	var line string
 
-	last := time.Now()
+	var err error
+
+	defer func() {
+		errch <- err
+		close(errch)
+	}()
 
 	for {
 		var tmpline string
@@ -487,10 +510,16 @@ func (mod *module) readDownloadVideo(task *TaskDownload, bufread *bufio.Reader) 
 			line = tmpline
 		}
 
+		if ctx.Err() != nil {
+			return
+		}
+
 		if strings.Contains(line, "requested format not available") {
 			mod.updateMessage(task.GuildID, task.ChannelID, task.MessageID, line)
 
-			return ErrInvalidFormat
+			err = ErrInvalidFormat
+
+			return
 		}
 
 		if err != nil {
@@ -500,20 +529,41 @@ func (mod *module) readDownloadVideo(task *TaskDownload, bufread *bufio.Reader) 
 
 			mod.updateMessage(task.GuildID, task.ChannelID, task.MessageID, line)
 
-			break
+			return
 		}
 
 		if time.Since(last) > time.Second*10 {
 			last = time.Now()
 
-			mod.updateMessage(task.GuildID, task.ChannelID, task.MessageID, line)
+			mod.updateMessage(task.GuildID, task.ChannelID, task.MessageID, id+" "+line)
 		}
 	}
-
-	return err
 }
 
-func (mod *module) downloadVideo(task *TaskDownload) (err error) {
+func (mod *module) readDownloadVideo(
+	ctx context.Context,
+	proc *os.Process,
+	id string,
+	task *TaskDownload,
+	bufread *bufio.Reader,
+) (err error) {
+	errch := make(chan error)
+
+	go mod.readDownloadVideoLoop(ctx, id, task, bufread, errch)
+
+	select {
+	case <-ctx.Done():
+		_ = proc.Kill()
+		err = ErrCancelled
+
+		<-errch
+	case err = <-errch:
+	}
+
+	return
+}
+
+func (mod *module) downloadVideo(ctx context.Context, id string, task *TaskDownload) (err error) {
 	format := task.Format
 
 	args := append([]string{}, mod.config.Config.Private.Nicovideo.Opts...)
@@ -557,12 +607,12 @@ func (mod *module) downloadVideo(task *TaskDownload) (err error) {
 		return err
 	}
 
-	err = mod.readDownloadVideo(task, bufread)
+	err = mod.readDownloadVideo(ctx, cmd.Process, id, task, bufread)
 	if err != nil && err != ErrInvalidFormat {
 		mod.config.Log.WithError(err).Error("Reading stdout")
 	}
 
-	if err == ErrInvalidFormat {
+	if err == ErrInvalidFormat || err == ErrCancelled {
 		_ = cmd.Wait()
 		return err
 	}
@@ -627,6 +677,19 @@ func (mod *module) startList() {
 	}
 }
 
+func (mod *module) startDownloadError(err error, id string, task *TaskDownload) {
+	if err == ErrCancelled {
+		mod.updateMessage(task.GuildID, task.ChannelID, task.MessageID, "Cancelled")
+		mod.ackTask(task, id, nil)
+
+		return
+	}
+
+	mod.config.Log.WithError(err).Error("Downloading video")
+	mod.updateMessage(task.GuildID, task.ChannelID, task.MessageID, "Downloading error")
+	mod.ackTask(task, id, nil)
+}
+
 func (mod *module) startDownload() {
 	task := &TaskDownload{}
 
@@ -657,16 +720,33 @@ downloadLoop:
 			mod.downloadSend(task, fpath)
 			mod.ackTask(task, id, nil)
 
+			_ = mod.config.Discord.MessageReactionRemove(task.ChannelID, task.MessageID, emojiStop, "@me")
+
 			continue downloadLoop
 		}
 
+		ctx, cancel := context.WithTimeout(context.Background(), time.Hour)
+
+		mod.m.Lock()
+		mod.task = task
+		mod.cancel = cancel
+		mod.m.Unlock()
+
 		err = mod.tryPerform(func() error {
-			return mod.downloadVideo(task)
+			return mod.downloadVideo(ctx, id, task)
 		})
+
+		cancel()
+
+		_ = mod.config.Discord.MessageReactionRemove(task.ChannelID, task.MessageID, emojiStop, "@me")
+
+		mod.m.Lock()
+		mod.task = nil
+		mod.cancel = nil
+		mod.m.Unlock()
+
 		if err != nil {
-			mod.config.Log.WithError(err).Error("Downloading video")
-			mod.updateMessage(task.GuildID, task.ChannelID, task.MessageID, "Downloading error")
-			mod.ackTask(task, id, nil)
+			mod.startDownloadError(err, id, task)
 
 			continue
 		}
@@ -693,7 +773,7 @@ func (mod *module) tryPerform(action func() error) (err error) {
 
 	for {
 		err = action()
-		if err != nil && err != ErrInvalidFormat {
+		if err != nil && err != ErrInvalidFormat && err != ErrCancelled {
 			if time.Since(last) < time.Second*30 {
 				i++
 			} else {

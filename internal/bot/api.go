@@ -45,6 +45,47 @@ func (conf *Configuration) HasRole(guildID, userID, roleID string) bool {
 	return guild.hasRole(userID, roleID)
 }
 
+func containsString(s string, ss ...string) bool {
+	for _, ri := range ss {
+		if ri == s {
+			return true
+		}
+	}
+
+	return false
+}
+
+// HasPermission returns true if user has administrative or matching permissions
+func (conf *Configuration) HasPermission(
+	msg *discordgo.Message,
+	permissions int,
+	roleIDs, roleNames []string,
+) bool {
+	admrole, _ := conf.Repository.ConfigGet(msg.GuildID, "auth", "admin.role")
+
+	for _, r := range msg.Member.Roles {
+		role, err := conf.Discord.State.Role(msg.GuildID, r)
+		if err != nil {
+			conf.Log.WithError(err).Error("Loading role", msg.GuildID, r)
+			continue
+		}
+
+		if permissions != 0 && role.Permissions&permissions != 0 {
+			return true
+		}
+
+		if permissions&discordgo.PermissionAdministrator != 0 && r == admrole {
+			return true
+		}
+
+		if containsString(r, roleIDs...) || containsString(role.Name, roleNames...) {
+			return true
+		}
+	}
+
+	return false
+}
+
 // HasMembers returns true if role exists and has non-zero number of members
 func (conf *Configuration) HasMembers(guildID, roleID string) bool {
 	guild := conf.bot.guild(guildID)

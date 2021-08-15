@@ -22,7 +22,7 @@ linters-settings:
     min-complexity: 15
   gofmt:
     simplify: true
-  golint:
+  revive:
     min-confidence: 0.8
   govet:
     check-shadowing: true
@@ -52,7 +52,7 @@ linters:
     - typecheck
     - bodyclose
     - stylecheck
-    - golint
+    - revive
     - unconvert
     - goconst
     - gocyclo

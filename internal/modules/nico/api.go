@@ -2,6 +2,7 @@
 package nico
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -11,15 +12,15 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
-
-	"github.com/sirupsen/logrus"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/eientei/jaroid/internal/api/nicovideo"
 	"github.com/eientei/jaroid/internal/bot"
 	"github.com/eientei/jaroid/internal/modules/auth"
 	"github.com/eientei/jaroid/internal/router"
+	"github.com/sirupsen/logrus"
 )
 
 var (
@@ -31,6 +32,10 @@ var (
 	ErrInvalidURL = errors.New("invalid url")
 	// ErrInvalidFormat inidactes invalid video format
 	ErrInvalidFormat = errors.New("invalid format id")
+	// ErrCancelled inidactes downloading was cancelled
+	ErrCancelled = errors.New("cancelled")
+	// ErrInvalidID inidactes invalid message / task ID specified
+	ErrInvalidID = errors.New("invalid ID")
 )
 
 // Used emojis
@@ -44,6 +49,7 @@ const (
 	emojiBackward = "\xE2\x97\x80"
 	emojiPositive = "\xE2\x9C\x85"
 	emojiNegative = "\xE2\x9D\x8E"
+	emojiStop     = "\xE2\x8F\xB9"
 )
 
 // New provides module instacne
@@ -51,6 +57,7 @@ func New() bot.Module {
 	return &module{
 		client:  nicovideo.New(),
 		servers: make(map[string]bool),
+		m:       &sync.Mutex{},
 	}
 }
 
@@ -58,6 +65,9 @@ type module struct {
 	config  *bot.Configuration
 	client  *nicovideo.Client
 	servers map[string]bool
+	m       *sync.Mutex
+	task    *TaskDownload
+	cancel  context.CancelFunc
 }
 
 func (mod *module) Initialize(config *bot.Configuration) error {
@@ -289,12 +299,15 @@ func (mod *module) commandDownload(ctx *router.Context) error {
 	}
 
 	if format == "list" {
-		return mod.config.Repository.TaskEnqueue(&TaskList{
+		_, err = mod.config.Repository.TaskEnqueue(&TaskList{
 			GuildID:   msg.GuildID,
 			ChannelID: msg.ChannelID,
 			MessageID: msg.ID,
 			VideoURL:  urlraw,
+			UserID:    ctx.Message.Author.ID,
 		}, 0, 0)
+
+		return err
 	}
 
 	if humanFileSizeExtractor.MatchString(format) || strings.ToLower(format) == "inf" {
@@ -311,7 +324,7 @@ func (mod *module) commandDownload(ctx *router.Context) error {
 			target = math.MaxFloat64
 		}
 
-		return mod.config.Repository.TaskEnqueue(&TaskList{
+		_, err = mod.config.Repository.TaskEnqueue(&TaskList{
 			GuildID:   msg.GuildID,
 			ChannelID: msg.ChannelID,
 			MessageID: msg.ID,
@@ -320,15 +333,26 @@ func (mod *module) commandDownload(ctx *router.Context) error {
 			Target:    target,
 			Force:     force,
 		}, 0, 0)
+
+		return err
 	}
 
-	return mod.config.Repository.TaskEnqueue(&TaskDownload{
+	var id string
+
+	id, err = mod.config.Repository.TaskEnqueue(&TaskDownload{
 		GuildID:   msg.GuildID,
 		ChannelID: msg.ChannelID,
 		MessageID: msg.ID,
 		VideoURL:  urlraw,
 		Format:    format,
+		UserID:    ctx.Message.Author.ID,
 	}, 0, 0)
+
+	mod.updateMessage(msg.GuildID, msg.ChannelID, msg.ID, id+" "+msg.Content)
+
+	_ = mod.config.Discord.MessageReactionAdd(msg.ChannelID, msg.ID, emojiStop)
+
+	return err
 }
 
 func (mod *module) commandFeed(ctx *router.Context) error {
@@ -418,11 +442,63 @@ func (mod *module) renderSelection(session *discordgo.Session, msg *discordgo.Me
 	}
 }
 
+func (mod *module) handleStopDownload(
+	session *discordgo.Session,
+	userID string,
+	msg *discordgo.Message,
+) {
+	if msg.Author.ID != session.State.User.ID {
+		return
+	}
+
+	parts := strings.Split(msg.Content, " ")
+
+	if len(parts) < 2 {
+		return
+	}
+
+	var task TaskDownload
+
+	err := mod.config.Repository.TaskGet(&task, parts[0])
+	if err != nil {
+		return
+	}
+
+	if task.UserID != userID &&
+		!mod.config.HasPermission(msg, discordgo.PermissionAdministrator, nil, nil) {
+		return
+	}
+
+	var cancel context.CancelFunc
+
+	task = TaskDownload{}
+
+	mod.m.Lock()
+	if mod.task != nil {
+		task = *mod.task
+		cancel = mod.cancel
+	}
+	mod.m.Unlock()
+
+	if cancel != nil && task.MessageID == msg.ID {
+		cancel()
+	}
+
+	_ = mod.config.Repository.TaskAck(task, parts[0])
+	_ = mod.config.Discord.MessageReactionRemove(msg.ChannelID, msg.ID, emojiStop, "@me")
+
+	mod.updateMessage(msg.GuildID, msg.ChannelID, msg.ID, "Cancelled")
+}
+
 func (mod *module) handlerReactionAddDownload(
 	session *discordgo.Session,
 	messageReactionAdd *discordgo.MessageReactionAdd,
 	msg *discordgo.Message,
 ) {
+	if messageReactionAdd.Emoji.Name == emojiStop {
+		mod.handleStopDownload(session, messageReactionAdd.UserID, msg)
+	}
+
 	var found bool
 
 	for _, u := range msg.Mentions {
@@ -454,13 +530,20 @@ func (mod *module) handlerReactionAddDownload(
 		return
 	}
 
-	_ = mod.config.Repository.TaskEnqueue(&TaskDownload{
+	var id string
+
+	id, _ = mod.config.Repository.TaskEnqueue(&TaskDownload{
 		GuildID:   msg.GuildID,
 		ChannelID: msg.ChannelID,
 		MessageID: msg.ID,
 		VideoURL:  parts[1],
 		Format:    parts[2],
+		UserID:    messageReactionAdd.UserID,
 	}, 0, 0)
+
+	mod.updateMessage(msg.GuildID, msg.ChannelID, msg.ID, id+" "+msg.Content)
+
+	_ = mod.config.Discord.MessageReactionAdd(msg.ChannelID, msg.ID, emojiStop)
 }
 
 func (mod *module) handlerReactionAdd(session *discordgo.Session, messageReactionAdd *discordgo.MessageReactionAdd) {

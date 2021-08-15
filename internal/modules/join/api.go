@@ -249,7 +249,7 @@ func (mod *module) handlerGreet(session *discordgo.Session, guildMemberAdd *disc
 		return
 	}
 
-	err = mod.config.Repository.TaskEnqueue(&cleanup.Task{
+	_, err = mod.config.Repository.TaskEnqueue(&cleanup.Task{
 		GuildID:   msg.GuildID,
 		ChannelID: msg.ChannelID,
 		MessageID: msg.ID,
@@ -259,7 +259,7 @@ func (mod *module) handlerGreet(session *discordgo.Session, guildMemberAdd *disc
 	}
 
 	if attachmsg != nil {
-		err = mod.config.Repository.TaskEnqueue(&cleanup.Task{
+		_, err = mod.config.Repository.TaskEnqueue(&cleanup.Task{
 			GuildID:   attachmsg.GuildID,
 			ChannelID: attachmsg.ChannelID,
 			MessageID: attachmsg.ID,

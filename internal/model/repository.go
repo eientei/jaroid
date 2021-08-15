@@ -37,12 +37,12 @@ func (repo *Repository) ConfigGet(guildID, scope, key string) (s string, err err
 }
 
 // TaskEnqueue schedules task for execution
-func (repo *Repository) TaskEnqueue(task Task, delay, timeout time.Duration) error {
+func (repo *Repository) TaskEnqueue(task Task, delay, timeout time.Duration) (string, error) {
 	fkey := fmt.Sprintf("task.%s.%s", task.Scope(), task.Name())
 
 	bs, err := json.Marshal(task)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	return repo.Client.XAdd(&redis.XAddArgs{
@@ -53,7 +53,7 @@ func (repo *Repository) TaskEnqueue(task Task, delay, timeout time.Duration) err
 			"timeout": int64(timeout),
 			"data":    bs,
 		},
-	}).Err()
+	}).Result()
 }
 
 func (repo *Repository) processMessage(
@@ -216,6 +216,29 @@ func (repo *Repository) TaskAck(task Task, id string) (err error) {
 	tx.XAck(fkey, "tasks", id)
 	tx.XDel(fkey, id)
 	_, err = tx.Exec()
+
+	return
+}
+
+// TaskGet retrieves task by id
+func (repo *Repository) TaskGet(task Task, id string) (err error) {
+	fkey := fmt.Sprintf("task.%s.%s", task.Scope(), task.Name())
+
+	ms, err := repo.Client.XRange(fkey, id, id).Result()
+	if err != nil {
+		return
+	}
+
+	for _, m := range ms {
+		bs, ok := m.Values["data"].(string)
+		if !ok {
+			return nil
+		}
+
+		err = json.Unmarshal([]byte(bs), &task)
+
+		return
+	}
 
 	return
 }
