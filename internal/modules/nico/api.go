@@ -443,11 +443,10 @@ func (mod *module) renderSelection(session *discordgo.Session, msg *discordgo.Me
 }
 
 func (mod *module) handleStopDownload(
-	session *discordgo.Session,
 	userID string,
 	msg *discordgo.Message,
 ) {
-	if msg.Author.ID != session.State.User.ID {
+	if userID == mod.config.Discord.State.User.ID {
 		return
 	}
 
@@ -496,7 +495,9 @@ func (mod *module) handlerReactionAddDownload(
 	msg *discordgo.Message,
 ) {
 	if messageReactionAdd.Emoji.Name == emojiStop {
-		mod.handleStopDownload(session, messageReactionAdd.UserID, msg)
+		msg.GuildID = messageReactionAdd.GuildID
+
+		mod.handleStopDownload(messageReactionAdd.UserID, msg)
 	}
 
 	var found bool

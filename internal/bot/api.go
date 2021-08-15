@@ -55,6 +55,23 @@ func containsString(s string, ss ...string) bool {
 	return false
 }
 
+func (conf *Configuration) ensureMember(msg *discordgo.Message) (*discordgo.Member, error) {
+	if msg.Member != nil {
+		return msg.Member, nil
+	}
+
+	var err error
+
+	msg.Member, err = conf.Discord.GuildMember(msg.GuildID, msg.Author.ID)
+	if err != nil {
+		conf.Log.WithError(err).Error("Loading member", msg.GuildID, msg.Author.ID)
+
+		return msg.Member, err
+	}
+
+	return msg.Member, nil
+}
+
 // HasPermission returns true if user has administrative or matching permissions
 func (conf *Configuration) HasPermission(
 	msg *discordgo.Message,
@@ -63,8 +80,15 @@ func (conf *Configuration) HasPermission(
 ) bool {
 	admrole, _ := conf.Repository.ConfigGet(msg.GuildID, "auth", "admin.role")
 
-	for _, r := range msg.Member.Roles {
-		role, err := conf.Discord.State.Role(msg.GuildID, r)
+	member, err := conf.ensureMember(msg)
+	if err != nil {
+		return false
+	}
+
+	for _, r := range member.Roles {
+		var role *discordgo.Role
+
+		role, err = conf.Discord.State.Role(msg.GuildID, r)
 		if err != nil {
 			conf.Log.WithError(err).Error("Loading role", msg.GuildID, r)
 			continue
