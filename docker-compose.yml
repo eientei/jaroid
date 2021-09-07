@@ -1,0 +1,19 @@
+version: '3.5'
+services:
+  jaroid:
+    image: "jaroid"
+    build:
+      context: .
+      dockerfile: ./docker/Dockerfile
+    restart: "unless-stopped"
+#    user: 1000:1000
+    depends_on:
+      - redis
+    command: "-c /data/config.yml"
+    volumes:
+      - "./docker/data/jaroid:/data"
+  redis:
+    image: "redis:6.2.5-alpine3.14"
+    command: "redis-server --appendonly yes"
+    volumes:
+      - "./docker/data/redis:/data"    

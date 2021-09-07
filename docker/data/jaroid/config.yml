@@ -1,0 +1,19 @@
+private:
+  token: "NjcxNDEzODMwMDU5OTUwMDgw.Xi8k5A.6-57SJF0gVrtCt-2dM4gKflzEto"
+  prefix: "!"
+  redis:
+    address: "redis:6379"
+    password: ""
+    db: 0
+  nicovideo:
+    directory: "/data/nico"
+    public: "https://your.domain/public/path"
+    period: "24h"
+    opts:
+      - "--add-metadata"
+      - "--xattrs"
+      - "--newline"
+#      - "-u"
+#      - "foobar@hurrdurr.com"
+#      - "-p"
+#      - "fugyou"
