@@ -1,6 +1,6 @@
 module github.com/eientei/jaroid
 
-go 1.13
+go 1.16
 
 require (
 	github.com/bwmarrin/discordgo v0.22.0

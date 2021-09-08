@@ -50,13 +50,19 @@ const (
 	emojiPositive = "\xE2\x9C\x85"
 	emojiNegative = "\xE2\x9D\x8E"
 	emojiStop     = "\xE2\x8F\xB9"
+	emojiArrowUp  = "\xE2\xAC\x86"
 )
+
+type server struct {
+	pleromaHost string
+	pleromaAuth string
+}
 
 // New provides module instacne
 func New() bot.Module {
 	return &module{
 		client:  nicovideo.New(),
-		servers: make(map[string]bool),
+		servers: make(map[string]*server),
 		m:       &sync.Mutex{},
 	}
 }
@@ -64,7 +70,7 @@ func New() bot.Module {
 type module struct {
 	config  *bot.Configuration
 	client  *nicovideo.Client
-	servers map[string]bool
+	servers map[string]*server
 	m       *sync.Mutex
 	task    *TaskDownload
 	cancel  context.CancelFunc
@@ -89,12 +95,22 @@ func (mod *module) Initialize(config *bot.Configuration) error {
 	go mod.startDownload()
 	go mod.startList()
 	go mod.startCleanup()
+	go mod.startPleromaPost()
 
 	return nil
 }
 
 func (mod *module) Configure(config *bot.Configuration, guild *discordgo.Guild) {
-	mod.servers[guild.ID] = true
+	s := &server{}
+
+	for _, c := range config.Config.Servers {
+		if c.GuildID == guild.ID {
+			s.pleromaHost = c.Pleroma.Host
+			s.pleromaAuth = c.Pleroma.Auth
+		}
+	}
+
+	mod.servers[guild.ID] = s
 }
 
 func (mod *module) Shutdown(config *bot.Configuration) {
@@ -298,9 +314,11 @@ func (mod *module) commandDownload(ctx *router.Context) error {
 		format = strings.TrimSpace(ctx.Args[2])
 	}
 
+	post := mod.postPermission(ctx)
+
 	if format == "list" {
 		_, err = mod.config.Repository.TaskEnqueue(&TaskList{
-			GuildID:   msg.GuildID,
+			GuildID:   ctx.Message.GuildID,
 			ChannelID: msg.ChannelID,
 			MessageID: msg.ID,
 			VideoURL:  urlraw,
@@ -325,13 +343,14 @@ func (mod *module) commandDownload(ctx *router.Context) error {
 		}
 
 		_, err = mod.config.Repository.TaskEnqueue(&TaskList{
-			GuildID:   msg.GuildID,
+			GuildID:   ctx.Message.GuildID,
 			ChannelID: msg.ChannelID,
 			MessageID: msg.ID,
 			UserID:    ctx.Message.Author.ID,
 			VideoURL:  urlraw,
 			Target:    target,
 			Force:     force,
+			Post:      post,
 		}, 0, 0)
 
 		return err
@@ -340,12 +359,13 @@ func (mod *module) commandDownload(ctx *router.Context) error {
 	var id string
 
 	id, err = mod.config.Repository.TaskEnqueue(&TaskDownload{
-		GuildID:   msg.GuildID,
+		GuildID:   ctx.Message.GuildID,
 		ChannelID: msg.ChannelID,
 		MessageID: msg.ID,
 		VideoURL:  urlraw,
 		Format:    format,
 		UserID:    ctx.Message.Author.ID,
+		Post:      post,
 	}, 0, 0)
 
 	mod.updateMessage(msg.GuildID, msg.ChannelID, msg.ID, id+" "+msg.Content)
@@ -353,6 +373,15 @@ func (mod *module) commandDownload(ctx *router.Context) error {
 	_ = mod.config.Discord.MessageReactionAdd(msg.ChannelID, msg.ID, emojiStop)
 
 	return err
+}
+
+func (mod *module) postPermission(ctx *router.Context) bool {
+	return len(ctx.Args) > 3 && ctx.Args[3] == "post" && mod.config.HasPermission(
+		ctx.Message,
+		discordgo.PermissionAdministrator,
+		nil,
+		nil,
+	)
 }
 
 func (mod *module) commandFeed(ctx *router.Context) error {

@@ -3,6 +3,7 @@ package nicovideo
 
 import (
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"math/rand"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 )
 
 const baseVideoURI = "https://api.search.nicovideo.jp/api/v2/snapshot/video/contents/search"
+const thumbURI = "http://ext.nicovideo.jp/api/getthumbinfo/"
 
 // Field of content entry
 type Field string
@@ -69,8 +71,9 @@ const (
 // New creates new API client
 func New() *Client {
 	return &Client{
-		HTTP:    &http.Client{},
-		BaseURI: baseVideoURI,
+		HTTP:     &http.Client{},
+		BaseURI:  baseVideoURI,
+		ThumbURI: thumbURI,
 		Headers: http.Header{
 			"user-agent": []string{"goclient/0.1 golang nicovideo api client"},
 		},
@@ -80,10 +83,11 @@ func New() *Client {
 
 // Client implements nicovideo API client
 type Client struct {
-	HTTP    *http.Client
-	BaseURI string
-	Headers http.Header
-	Context string
+	HTTP     *http.Client
+	BaseURI  string
+	ThumbURI string
+	Headers  http.Header
+	Context  string
 }
 
 // Filter search
@@ -276,4 +280,68 @@ func (client *Client) Search(opts *Search) (res *SearchResult, err error) {
 	client.postprocessSearch(res)
 
 	return
+}
+
+// ThumbItemTags represents thumbnail tag list
+type ThumbItemTags struct {
+	Domain string   `xml:"domain,attr"`
+	Tag    []string `xml:"tag"`
+}
+
+// ThumbItem represents thumbnail item
+type ThumbItem struct {
+	VideoID       string           `xml:"video_id"`
+	Title         string           `xml:"title"`
+	Description   string           `xml:"description"`
+	ThumbnailURL  string           `xml:"thumbnail_url"`
+	Length        string           `xml:"length"`
+	MovieType     string           `xml:"movie_type"`
+	LastResBody   string           `xml:"last_res_body"`
+	WatchURL      string           `xml:"watch_url"`
+	ThumbType     string           `xml:"thumb_type"`
+	Genre         string           `xml:"genre"`
+	UserID        string           `xml:"user_id"`
+	UserNickname  string           `xml:"user_nickname"`
+	UserIconURL   string           `xml:"user_icon_url"`
+	FirstRetrieve time.Time        `xml:"first_retrieve"`
+	Tags          []*ThumbItemTags `xml:"tags"`
+	SizeHigh      int              `xml:"size_high"`
+	SizeLow       int              `xml:"size_low"`
+	ViewCounter   int              `xml:"view_counter"`
+	CommentNum    int              `xml:"comment_num"`
+	MylistCounter int              `xml:"mylist_counter"`
+	Embeddable    bool             `xml:"embeddable"`
+	NoLivePlay    bool             `xml:"no_live_play"`
+}
+
+// ThumbInfo returns thumbnail info for nicovideo ID
+func (client *Client) ThumbInfo(id string) (res *ThumbItem, err error) {
+	var dec struct {
+		Thumb *ThumbItem `xml:"thumb"`
+	}
+
+	req, err := http.NewRequest(http.MethodGet, client.ThumbURI+id, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header = client.Headers
+
+	resp, err := client.HTTP.Do(req)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() {
+		if e := resp.Body.Close(); err == nil {
+			err = e
+		}
+	}()
+
+	err = xml.NewDecoder(resp.Body).Decode(&dec)
+	if err != nil {
+		return nil, err
+	}
+
+	return dec.Thumb, nil
 }

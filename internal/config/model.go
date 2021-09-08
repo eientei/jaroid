@@ -21,6 +21,12 @@ type Nicovideo struct {
 	Limit     int           `yaml:"limit"`
 }
 
+// Pleroma nicomodule configuration
+type Pleroma struct {
+	Host string `yaml:"host"`
+	Auth string `yaml:"auth"`
+}
+
 // Private part of configuration
 type Private struct {
 	Token     string    `yaml:"token"`
@@ -36,6 +42,7 @@ type Server struct {
 	GuildID string   `yaml:"id"`
 	Prefix  string   `yaml:"prefix"`
 	LogDB   string   `yaml:"logdb"`
+	Pleroma Pleroma  `yaml:"pleroma"`
 	Admins  []string `yaml:"admins"`
 }
 

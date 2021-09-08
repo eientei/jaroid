@@ -61,6 +61,7 @@ type TaskDownload struct {
 	VideoURL  string `json:"video_url"`
 	Format    string `json:"format"`
 	UserID    string `json:"user_id"`
+	Post      bool   `json:"post"`
 }
 
 // Scope returns task scope
@@ -82,6 +83,7 @@ type TaskList struct {
 	VideoURL  string  `json:"video_url"`
 	Target    float64 `json:"target"`
 	Force     bool    `json:"force"`
+	Post      bool    `json:"post"`
 }
 
 // Scope returns task scope
@@ -110,6 +112,27 @@ func (TaskCleanup) Scope() string {
 // Name returns task name
 func (TaskCleanup) Name() string {
 	return "cleanup"
+}
+
+// TaskPleromaPost posts video to pleroma instance
+type TaskPleromaPost struct {
+	GuildID     string `json:"guild_id"`
+	ChannelID   string `json:"channel_id"`
+	MessageID   string `json:"message_id"`
+	VideoURL    string `json:"video_url"`
+	FilePath    string `json:"file_path"`
+	PleromaHost string `json:"pleroma_host"`
+	PleromaAuth string `json:"pleroma_auth"`
+}
+
+// Scope returns task scope
+func (TaskPleromaPost) Scope() string {
+	return taskNico
+}
+
+// Name returns task name
+func (TaskPleromaPost) Name() string {
+	return "pleroma_post"
 }
 
 func (mod *module) ackTask(task model.Task, id string, err error) {
@@ -169,6 +192,10 @@ func (mod *module) downloadSend(task *TaskDownload, fpath string) {
 	}, mod.config.Config.Private.Nicovideo.Period, 0)
 	if err != nil {
 		mod.config.Log.WithError(err).Error("Scheduling cleanup", task.GuildID, task.ChannelID, task.MessageID)
+	}
+
+	if task.Post {
+		mod.pleromaPostEnqueue(task, fpath)
 	}
 }
 
@@ -404,6 +431,7 @@ func (mod *module) listFormatsVideo(task *TaskList) (err error) {
 			VideoURL:  task.VideoURL,
 			Format:    suggest.name,
 			UserID:    task.UserID,
+			Post:      task.Post,
 		}, 0, 0)
 
 		est := strings.TrimSpace(humanFileSize(suggest.size))
