@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -92,8 +93,9 @@ func (mod *module) pleromaUploadFile(task *TaskPleromaPost) (string, error) {
 }
 
 type pleromaStatus struct {
-	Status   string   `json:"status"`
-	MediaIDs []string `json:"media_ids"`
+	Status      string   `json:"status,omitempty"`
+	ContentType string   `json:"content_type,omitempty"`
+	MediaIDs    []string `json:"media_ids,omitempty"`
 }
 
 func (mod *module) pleromaCreateStatus(task *TaskPleromaPost, status *pleromaStatus) error {
@@ -126,6 +128,8 @@ func (mod *module) pleromaCreateStatus(task *TaskPleromaPost, status *pleromaSta
 	return nil
 }
 
+var symregex = regexp.MustCompile(`[^\pL\pN_]`)
+
 func (mod *module) pleromaPost(task *TaskPleromaPost) error {
 	name := path.Base(task.VideoURL)
 
@@ -141,12 +145,12 @@ func (mod *module) pleromaPost(task *TaskPleromaPost) error {
 	for _, td := range res.Tags {
 		if td.Domain == "jp" {
 			for _, t := range td.Tag {
-				tags = append(tags, "#"+t)
+				tags = append(tags, "#"+symregex.ReplaceAllString(t, ""))
 			}
 		}
 	}
 
-	body := res.Title + "\n" + res.WatchURL + "\n" + strings.Join(tags, " ")
+	body := "**" + res.Title + "**\n" + res.WatchURL + "\n" + strings.Join(tags, " ")
 
 	mediaID, err := mod.pleromaUploadFile(task)
 	if err != nil {
@@ -154,8 +158,9 @@ func (mod *module) pleromaPost(task *TaskPleromaPost) error {
 	}
 
 	return mod.pleromaCreateStatus(task, &pleromaStatus{
-		Status:   body,
-		MediaIDs: []string{mediaID},
+		Status:      body,
+		MediaIDs:    []string{mediaID},
+		ContentType: "text/markdown",
 	})
 }
 
