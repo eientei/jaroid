@@ -61,6 +61,7 @@ type TaskDownload struct {
 	VideoURL  string `json:"video_url"`
 	Format    string `json:"format"`
 	UserID    string `json:"user_id"`
+	Subs      string `json:"subs"`
 	Post      bool   `json:"post"`
 }
 
@@ -81,6 +82,7 @@ type TaskList struct {
 	MessageID string  `json:"message_id"`
 	UserID    string  `json:"user_id"`
 	VideoURL  string  `json:"video_url"`
+	Subs      string  `json:"subs"`
 	Target    float64 `json:"target"`
 	Force     bool    `json:"force"`
 	Post      bool    `json:"post"`
@@ -171,6 +173,10 @@ func (mod *module) readLine(bufread *bufio.Reader) (line string, err error) {
 	}
 }
 
+func subtitleFilename(s, subs string) string {
+	return strings.ReplaceAll(s, ".mp4", "."+subs+".ass")
+}
+
 func (mod *module) downloadSend(task *TaskDownload, fpath string) {
 	base := filepath.Base(fpath)
 	uri := mod.config.Config.Private.Nicovideo.Public + "/" + base
@@ -178,6 +184,26 @@ func (mod *module) downloadSend(task *TaskDownload, fpath string) {
 	_, _ = sb.WriteString("Downloaded as ")
 	_, _ = sb.WriteString(uri)
 	_, _ = sb.WriteString(" file will be deleted after " + mod.config.Config.Private.Nicovideo.Period.String())
+
+	if task.Subs != "" {
+		sb.WriteString("\nsubtitles: " + subtitleFilename(uri, task.Subs))
+
+		_, err := mod.config.Repository.TaskEnqueue(&TaskCleanup{
+			GuildID:   task.GuildID,
+			ChannelID: task.ChannelID,
+			MessageID: task.MessageID,
+			FilePath:  subtitleFilename(fpath, task.Subs),
+		}, mod.config.Config.Private.Nicovideo.Period, 0)
+		if err != nil {
+			mod.config.Log.WithError(err).Error(
+				"Scheduling subtitle cleanup",
+				task.GuildID,
+				task.ChannelID,
+				task.MessageID,
+			)
+		}
+	}
+
 	_, err := mod.config.Discord.ChannelMessageEdit(task.ChannelID, task.MessageID, sb.String())
 
 	if err != nil {
@@ -432,6 +458,7 @@ func (mod *module) listFormatsVideo(task *TaskList) (err error) {
 			Format:    suggest.name,
 			UserID:    task.UserID,
 			Post:      task.Post,
+			Subs:      task.Subs,
 		}, 0, 0)
 
 		est := strings.TrimSpace(humanFileSize(suggest.size))
@@ -608,6 +635,10 @@ func (mod *module) downloadVideo(ctx context.Context, id string, task *TaskDownl
 		args = append(args, "-f", task.Format)
 	}
 
+	if task.Subs != "" {
+		args = append(args, "--write-sub", "--sub-lang", task.Subs)
+	}
+
 	args = append(args, task.VideoURL)
 
 	cmd := exec.Command("youtube-dl", args...)
@@ -664,7 +695,7 @@ func (mod *module) globFind(fileID string) (string, error) {
 	}
 
 	for _, m := range matches {
-		if !strings.HasSuffix(m, ".part") {
+		if !strings.HasSuffix(m, ".part") && !strings.HasSuffix(m, ".ass") {
 			return m, nil
 		}
 	}
@@ -718,10 +749,21 @@ func (mod *module) startDownloadError(err error, id string, task *TaskDownload) 
 	mod.ackTask(task, id, nil)
 }
 
+func subsExist(task *TaskDownload, path string) bool {
+	if task.Subs == "" {
+		return true
+	}
+
+	cand := subtitleFilename(path, task.Subs)
+
+	_, err := os.Stat(cand)
+
+	return err == nil
+}
+
 func (mod *module) startDownload() {
 	task := &TaskDownload{}
 
-downloadLoop:
 	for {
 		id, err := mod.config.Repository.TaskDequeue(task, time.Second)
 		if err != nil {
@@ -744,13 +786,13 @@ downloadLoop:
 
 		var fpath string
 
-		if fpath, err = mod.globFind(fileID); err == nil && len(fpath) > 0 {
+		if fpath, err = mod.globFind(fileID); err == nil && len(fpath) > 0 && subsExist(task, fpath) {
 			mod.downloadSend(task, fpath)
 			mod.ackTask(task, id, nil)
 
 			_ = mod.config.Discord.MessageReactionRemove(task.ChannelID, task.MessageID, emojiStop, "@me")
 
-			continue downloadLoop
+			continue
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Hour)

@@ -308,13 +308,7 @@ func (mod *module) commandDownload(ctx *router.Context) error {
 		return err
 	}
 
-	var format string
-
-	if len(ctx.Args) > 2 {
-		format = strings.TrimSpace(ctx.Args[2])
-	}
-
-	post := mod.postPermission(ctx)
+	format, subs, post := mod.parseNicoDownloadArgs(ctx)
 
 	if format == "list" {
 		_, err = mod.config.Repository.TaskEnqueue(&TaskList{
@@ -351,6 +345,7 @@ func (mod *module) commandDownload(ctx *router.Context) error {
 			Target:    target,
 			Force:     force,
 			Post:      post,
+			Subs:      subs,
 		}, 0, 0)
 
 		return err
@@ -366,6 +361,7 @@ func (mod *module) commandDownload(ctx *router.Context) error {
 		Format:    format,
 		UserID:    ctx.Message.Author.ID,
 		Post:      post,
+		Subs:      subs,
 	}, 0, 0)
 
 	mod.updateMessage(msg.GuildID, msg.ChannelID, msg.ID, id+" "+msg.Content)
@@ -375,13 +371,29 @@ func (mod *module) commandDownload(ctx *router.Context) error {
 	return err
 }
 
-func (mod *module) postPermission(ctx *router.Context) bool {
-	return len(ctx.Args) > 3 && ctx.Args[3] == "post" && mod.config.HasPermission(
-		ctx.Message,
-		discordgo.PermissionAdministrator,
-		nil,
-		nil,
-	)
+func (mod *module) parseNicoDownloadArgs(ctx *router.Context) (format, subs string, post bool) {
+	for i := 2; i < len(ctx.Args); i++ {
+		switch {
+		case ctx.Args[i] == "post" && mod.config.HasPermission(
+			ctx.Message,
+			discordgo.PermissionAdministrator,
+			nil,
+			nil,
+		):
+			post = true
+		case strings.HasPrefix(ctx.Args[i], "sub"):
+			subs = strings.TrimPrefix(ctx.Args[i], "sub")
+			subs = strings.TrimPrefix(subs, ":")
+
+			if len(subs) == 0 {
+				subs = "jpn"
+			}
+		default:
+			format = strings.TrimSpace(ctx.Args[i])
+		}
+	}
+
+	return
 }
 
 func (mod *module) commandFeed(ctx *router.Context) error {
