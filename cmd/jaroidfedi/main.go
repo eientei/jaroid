@@ -131,7 +131,6 @@ func parseConfig() (c binconfig) {
 	p := flags.NewParser(&opts, flags.Default)
 	p.SubcommandsOptional = true
 	p.Usage = "https://www.nicovideo.jp/watch/sm0000000 <size[!]|formatid|max|list> [sub[:<jp|en|cn>]] [post]"
-	p.Options
 
 	rest, err := p.ParseArgs(preargs)
 
