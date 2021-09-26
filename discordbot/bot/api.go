@@ -188,7 +188,7 @@ type Module interface {
 	Shutdown(bot *Configuration)
 }
 
-// RoleModule interace marks modules interested in role changes
+// RoleModule interface marks modules interested in role changes
 type RoleModule interface {
 	RolesChanged(guildID, userID string, added, removed []string)
 }
