@@ -50,7 +50,7 @@ type Mediaservice struct {
 	YoutubeDL YoutubeDL `yaml:"youtube_dl,omitempty"`
 }
 
-// Instance returns new media service instance using current configruation
+// Instance returns new media service instance using current configuration
 func (m *Mediaservice) Instance() mediaservice.Downloader {
 	return m.YoutubeDL.Instance()
 }

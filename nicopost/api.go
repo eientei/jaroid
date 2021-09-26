@@ -146,7 +146,7 @@ type FormatMatch struct {
 	Size float64
 }
 
-// ProcessFormats finds closest lesser or equal format and smallest avilable format, as well listing of all formats
+// ProcessFormats finds closest lesser or equal format and smallest available format, as well listing of all formats
 func ProcessFormats(
 	lines []*mediaservice.Format,
 	dur time.Duration,
