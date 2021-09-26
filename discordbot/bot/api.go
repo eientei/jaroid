@@ -97,7 +97,7 @@ func (conf *Configuration) HasPermission(
 			continue
 		}
 
-		if permissions != 0 && role.Permissions&permissions != 0 {
+		if permissions != 0 && role.Permissions&int64(permissions) != 0 {
 			return true
 		}
 

@@ -4,8 +4,9 @@ go 1.16
 
 require (
 	gioui.org v0.0.0-20210925100615-41f3a7e74ee6
-	github.com/bwmarrin/discordgo v0.22.0
+	github.com/bwmarrin/discordgo v0.23.2
 	github.com/go-redis/redis/v7 v7.0.0-beta.5
+	github.com/gorilla/websocket v1.4.2 // indirect
 	github.com/jessevdk/go-flags v1.5.0
 	github.com/jmoiron/sqlx v1.2.0
 	github.com/lib/pq v1.0.0
