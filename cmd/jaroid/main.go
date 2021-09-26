@@ -4,25 +4,27 @@ import (
 	"flag"
 	"os"
 
-	"github.com/eientei/jaroid/internal/modules/rolereact"
+	"github.com/eientei/jaroid/mediaservice/youtubedl"
 
-	"github.com/eientei/jaroid/internal/modules/pin"
+	"github.com/eientei/jaroid/discordbot/modules/rolereact"
 
-	"github.com/eientei/jaroid/internal/modules/logdb"
+	"github.com/eientei/jaroid/discordbot/modules/pin"
 
-	"github.com/eientei/jaroid/internal/modules/deletereact"
+	"github.com/eientei/jaroid/discordbot/modules/logdb"
+
+	"github.com/eientei/jaroid/discordbot/modules/deletereact"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/eientei/jaroid/internal/bot"
-	yamlConfig "github.com/eientei/jaroid/internal/config"
-	"github.com/eientei/jaroid/internal/modules/auth"
-	"github.com/eientei/jaroid/internal/modules/cleanup"
-	"github.com/eientei/jaroid/internal/modules/color"
-	"github.com/eientei/jaroid/internal/modules/config"
-	"github.com/eientei/jaroid/internal/modules/help"
-	"github.com/eientei/jaroid/internal/modules/join"
-	"github.com/eientei/jaroid/internal/modules/nico"
-	"github.com/eientei/jaroid/internal/modules/reply"
+	"github.com/eientei/jaroid/discordbot/bot"
+	yamlConfig "github.com/eientei/jaroid/discordbot/config"
+	"github.com/eientei/jaroid/discordbot/modules/auth"
+	"github.com/eientei/jaroid/discordbot/modules/cleanup"
+	"github.com/eientei/jaroid/discordbot/modules/color"
+	"github.com/eientei/jaroid/discordbot/modules/config"
+	"github.com/eientei/jaroid/discordbot/modules/help"
+	"github.com/eientei/jaroid/discordbot/modules/join"
+	"github.com/eientei/jaroid/discordbot/modules/nico"
+	"github.com/eientei/jaroid/discordbot/modules/reply"
 	"github.com/go-redis/redis/v7"
 	"github.com/sirupsen/logrus"
 )
@@ -80,6 +82,13 @@ func main() {
 		Client:  client,
 		Config:  configRoot,
 		Log:     log,
+		Downloader: &youtubedl.Downloader{
+			ExecutablePath: "youtube-dl",
+			FormatRegexp:   "",
+			CommonArgs:     configRoot.Private.Nicovideo.Opts,
+			SaveArgs:       nil,
+			ListArgs:       nil,
+		},
 		Modules: []bot.Module{
 			cleanup.New(),
 			reply.New(),
