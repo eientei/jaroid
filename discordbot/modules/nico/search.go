@@ -3,32 +3,31 @@ package nico
 import (
 	"strings"
 
-	"github.com/eientei/jaroid/nicovideo/search"
-
 	"github.com/eientei/jaroid/discordbot/router"
+	"github.com/eientei/jaroid/integration/nicovideo"
 )
 
 func isField(s string) bool {
-	switch search.Field(s) {
-	case search.FieldContentID,
-		search.FieldTitle,
-		search.FieldDescription,
-		search.FieldUserID,
-		search.FieldViewCounter,
-		search.FieldMylistCounter,
-		search.FieldLengthSeconds,
-		search.FieldThumbnailURL,
-		search.FieldStartTime,
-		search.FieldThreadID,
-		search.FieldCommentCounter,
-		search.FieldLastCommentTime,
-		search.FieldCategoryTags,
-		search.FieldChannelID,
-		search.FieldTags,
-		search.FieldTagsExact,
-		search.FieldLockTagsExact,
-		search.FieldGenre,
-		search.FieldGenreKeyword:
+	switch nicovideo.Field(s) {
+	case nicovideo.FieldContentID,
+		nicovideo.FieldTitle,
+		nicovideo.FieldDescription,
+		nicovideo.FieldUserID,
+		nicovideo.FieldViewCounter,
+		nicovideo.FieldMylistCounter,
+		nicovideo.FieldLengthSeconds,
+		nicovideo.FieldThumbnailURL,
+		nicovideo.FieldStartTime,
+		nicovideo.FieldThreadID,
+		nicovideo.FieldCommentCounter,
+		nicovideo.FieldLastCommentTime,
+		nicovideo.FieldCategoryTags,
+		nicovideo.FieldChannelID,
+		nicovideo.FieldTags,
+		nicovideo.FieldTagsExact,
+		nicovideo.FieldLockTagsExact,
+		nicovideo.FieldGenre,
+		nicovideo.FieldGenreKeyword:
 		return true
 	}
 
@@ -36,20 +35,20 @@ func isField(s string) bool {
 }
 
 func isComparableField(s string) bool {
-	switch search.Field(s) {
-	case search.FieldViewCounter,
-		search.FieldMylistCounter,
-		search.FieldLengthSeconds,
-		search.FieldStartTime,
-		search.FieldCommentCounter,
-		search.FieldLastCommentTime:
+	switch nicovideo.Field(s) {
+	case nicovideo.FieldViewCounter,
+		nicovideo.FieldMylistCounter,
+		nicovideo.FieldLengthSeconds,
+		nicovideo.FieldStartTime,
+		nicovideo.FieldCommentCounter,
+		nicovideo.FieldLastCommentTime:
 		return true
 	}
 
 	return false
 }
 
-func parseSearchVariables(a string, s *search.Search) bool {
+func parseSearchVariables(a string, s *nicovideo.Search) bool {
 	parts := strings.Split(a[1:], "=")
 	if !isField(parts[0]) {
 		s.Query += " " + a
@@ -59,25 +58,25 @@ func parseSearchVariables(a string, s *search.Search) bool {
 	if isComparableField(parts[0]) {
 		switch {
 		case strings.Contains(parts[1], ".."):
-			s.Filters = append(s.Filters, search.Filter{
-				Field:    search.Field(parts[0]),
-				Operator: search.OperatorRange,
+			s.Filters = append(s.Filters, nicovideo.Filter{
+				Field:    nicovideo.Field(parts[0]),
+				Operator: nicovideo.OperatorRange,
 				Values:   strings.Split(parts[1], ".."),
 			})
 
 			return true
 		case strings.HasPrefix(parts[1], ">"):
-			s.Filters = append(s.Filters, search.Filter{
-				Field:    search.Field(parts[0]),
-				Operator: search.OperatorGTE,
+			s.Filters = append(s.Filters, nicovideo.Filter{
+				Field:    nicovideo.Field(parts[0]),
+				Operator: nicovideo.OperatorGTE,
 				Values:   []string{parts[1][1:]},
 			})
 
 			return true
 		case strings.HasPrefix(parts[1], "<"):
-			s.Filters = append(s.Filters, search.Filter{
-				Field:    search.Field(parts[0]),
-				Operator: search.OperatorLTE,
+			s.Filters = append(s.Filters, nicovideo.Filter{
+				Field:    nicovideo.Field(parts[0]),
+				Operator: nicovideo.OperatorLTE,
 				Values:   []string{parts[1][1:]},
 			})
 
@@ -85,31 +84,31 @@ func parseSearchVariables(a string, s *search.Search) bool {
 		}
 	}
 
-	s.Filters = append(s.Filters, search.Filter{
-		Field:    search.Field(parts[0]),
-		Operator: search.OperatorEqual,
+	s.Filters = append(s.Filters, nicovideo.Filter{
+		Field:    nicovideo.Field(parts[0]),
+		Operator: nicovideo.OperatorEqual,
 		Values:   []string{parts[1]},
 	})
 
 	return false
 }
 
-func (mod *module) parseSearch(args router.Args, fields []search.Field, offset, limit int) (s *search.Search) {
-	s = &search.Search{
+func (mod *module) parseSearch(args router.Args, fields []nicovideo.Field, offset, limit int) (s *nicovideo.Search) {
+	s = &nicovideo.Search{
 		Fields: fields,
 		Offset: offset,
 		Limit:  limit,
 	}
 
-	s.SortDirection = search.SortDesc
-	s.SortField = search.FieldViewCounter
+	s.SortDirection = nicovideo.SortDesc
+	s.SortField = nicovideo.FieldViewCounter
 
 	for _, a := range args[1:] {
 		switch {
 		case (strings.HasPrefix(a, "-") || strings.HasPrefix(a, "+")) && isField(a[1:]):
-			s.SortDirection, s.SortField = search.SortDirection(a[0]), search.Field(a[1:])
+			s.SortDirection, s.SortField = nicovideo.SortDirection(a[0]), nicovideo.Field(a[1:])
 		case strings.HasPrefix(a, "%") && isField(a[1:]):
-			s.Targets = append(s.Targets, search.Field(a[1:]))
+			s.Targets = append(s.Targets, nicovideo.Field(a[1:]))
 		case strings.HasPrefix(a, "$") && strings.Contains(a, "="):
 			if parseSearchVariables(a, s) {
 				continue
@@ -120,10 +119,10 @@ func (mod *module) parseSearch(args router.Args, fields []search.Field, offset, 
 	}
 
 	if len(s.Targets) == 0 {
-		s.Targets = []search.Field{
-			search.FieldTitle,
-			search.FieldTags,
-			search.FieldDescription,
+		s.Targets = []nicovideo.Field{
+			nicovideo.FieldTitle,
+			nicovideo.FieldTags,
+			nicovideo.FieldDescription,
 		}
 	}
 

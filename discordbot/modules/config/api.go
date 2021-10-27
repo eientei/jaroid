@@ -10,7 +10,7 @@ import (
 	"github.com/eientei/jaroid/discordbot/bot"
 	"github.com/eientei/jaroid/discordbot/modules/auth"
 	"github.com/eientei/jaroid/discordbot/router"
-	"github.com/go-redis/redis/v7"
+	redis "github.com/go-redis/redis/v7"
 )
 
 var (

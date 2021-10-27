@@ -4,8 +4,9 @@ package logdb
 import (
 	"sync"
 
-	"github.com/bwmarrin/discordgo"
 	"github.com/eientei/jaroid/discordbot/bot"
+
+	"github.com/bwmarrin/discordgo"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq" // Postgres driver
 )

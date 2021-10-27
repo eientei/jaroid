@@ -11,11 +11,17 @@ type Redis struct {
 	DB       int    `yaml:"db"`
 }
 
+// NicovideoAuth authentication details
+type NicovideoAuth struct {
+	Username string `yaml:"username"`
+	Password string `yaml:"password"`
+}
+
 // Nicovideo download configuration
 type Nicovideo struct {
 	Directory string        `yaml:"directory"`
 	Public    string        `yaml:"public"`
-	Opts      []string      `yaml:"opts"`
+	Auth      NicovideoAuth `yaml:"auth"`
 	Period    time.Duration `yaml:"period"`
 	Backoff   time.Duration `yaml:"backoff"`
 	Limit     int           `yaml:"limit"`

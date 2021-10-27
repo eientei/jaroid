@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/go-redis/redis/v7"
+	redis "github.com/go-redis/redis/v7"
 )
 
 // Repository provides methods to get and set configuration, enqueue and dequeue tasks

@@ -6,12 +6,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bwmarrin/discordgo"
 	"github.com/eientei/jaroid/discordbot/config"
 	"github.com/eientei/jaroid/discordbot/model"
 	"github.com/eientei/jaroid/discordbot/router"
-	"github.com/eientei/jaroid/mediaservice"
-	"github.com/go-redis/redis/v7"
+	"github.com/eientei/jaroid/integration/nicovideo"
+
+	"github.com/bwmarrin/discordgo"
+	redis "github.com/go-redis/redis/v7"
 	"github.com/sirupsen/logrus"
 )
 
@@ -20,12 +21,12 @@ var ErrNoReply = errors.New("noreply")
 
 // Options provide configuration options for bot
 type Options struct {
-	Discord    *discordgo.Session
-	Client     *redis.Client
-	Config     *config.Root
-	Log        *logrus.Logger
-	Downloader mediaservice.Downloader
-	Modules    []Module
+	Discord   *discordgo.Session
+	Client    *redis.Client
+	Config    *config.Root
+	Log       *logrus.Logger
+	Nicovideo *nicovideo.Client
+	Modules   []Module
 }
 
 // Configuration store configuration for bot
@@ -36,7 +37,7 @@ type Configuration struct {
 	Log        *logrus.Logger
 	Router     *router.Router
 	Repository *model.Repository
-	Downloader mediaservice.Downloader
+	Nicovideo  *nicovideo.Client
 	bot        *Bot
 	Modules    []Module
 }
@@ -217,7 +218,7 @@ func NewBot(options Options) (*Bot, error) {
 			Router:     router.NewRouter(),
 			Repository: model.NewRepository(options.Client),
 			Modules:    options.Modules,
-			Downloader: options.Downloader,
+			Nicovideo:  options.Nicovideo,
 		},
 		m:           &sync.RWMutex{},
 		roleModules: roleModules,

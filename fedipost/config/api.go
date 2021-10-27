@@ -8,15 +8,14 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/eientei/jaroid/fedipost"
-	"github.com/eientei/jaroid/mediaservice"
-	"github.com/eientei/jaroid/mediaservice/youtubedl"
 	"golang.org/x/oauth2"
-	"gopkg.in/yaml.v2"
+	yaml "gopkg.in/yaml.v2"
 )
 
 // OAuth2OOBRedirectURI special out of band redirect URI for displaying authorization code to user instead of
@@ -39,20 +38,23 @@ const DefaultUseragent = "jaroid"
 
 // Root represents root of configuration file
 type Root struct {
-	Instances    map[string]*Instance `yaml:"instances,omitempty"`
-	Global       Global               `yaml:"global,omitempty"`
-	Mediaservice Mediaservice         `yaml:"mediaservice,omitempty"`
+	Instances    map[string]*Instance `yaml:"instances"`
+	Global       Global               `yaml:"global"`
+	Mediaservice Mediaservice         `yaml:"mediaservice"`
+}
+
+// MediaserviceAuth authentication detauls
+type MediaserviceAuth struct {
+	Username string `yaml:"username"`
+	Password string `yaml:"password"`
 }
 
 // Mediaservice contains currently selected media service and configuration details for each
 type Mediaservice struct {
-	Default   string    `yaml:"default,omitempty"`
-	YoutubeDL YoutubeDL `yaml:"youtube_dl,omitempty"`
-}
-
-// Instance returns new media service instance using current configuration
-func (m *Mediaservice) Instance() mediaservice.Downloader {
-	return m.YoutubeDL.Instance()
+	Auth      MediaserviceAuth `yaml:"auth"`
+	SaveDir   string           `yaml:"save_dir"`
+	CookieJar string           `yaml:"cookie_jar"`
+	KeepFiles bool             `yaml:"keep_files"`
 }
 
 // Load loads config
@@ -84,16 +86,22 @@ func (r *Root) Save(writer io.Writer) error {
 		r.Global.UserAgent = DefaultUseragent
 	}
 
-	if r.Mediaservice.YoutubeDL.ExecutablePath == "" {
-		r.Mediaservice.YoutubeDL.ExecutablePath = "youtube-dl"
+	if r.Mediaservice.SaveDir == "" {
+		r.Mediaservice.SaveDir = filepath.Join(os.TempDir(), "jaroid")
 	}
 
-	if r.Mediaservice.YoutubeDL.SaveDir == "" {
-		r.Mediaservice.YoutubeDL.SaveDir = os.TempDir() + "/jaroid"
+	if r.Mediaservice.CookieJar == "" {
+		homedir, err := os.UserHomeDir()
+		if err != nil {
+			return err
+		}
+
+		r.Mediaservice.CookieJar = filepath.Join(homedir, ".config", "jaroid", "cookie.jar")
 	}
 
-	if r.Mediaservice.Default == "" {
-		r.Mediaservice.Default = "youtube-dl"
+	err := os.MkdirAll(filepath.Dir(r.Mediaservice.CookieJar), 0777)
+	if err != nil {
+		return err
 	}
 
 	return yaml.NewEncoder(writer).Encode(r)
@@ -267,28 +275,6 @@ type Global struct {
 	Template        string `yaml:"template,omitempty"`
 	UserAgent       string `yaml:"user_agent,omitempty"`
 	DefaultInstance string `yaml:"default_instance"`
-}
-
-// YoutubeDL config
-type YoutubeDL struct {
-	ExecutablePath string   `yaml:"executable_path,omitempty"`
-	FormatRegexp   string   `yaml:"format_regexp,omitempty"`
-	SaveDir        string   `yaml:"save_dir,omitempty"`
-	CommonArgs     []string `yaml:"common_args,omitempty"`
-	SaveArgs       []string `yaml:"save_args,omitempty"`
-	ListArgs       []string `yaml:"list_args,omitempty"`
-	KeepFiles      bool     `yaml:"keep_files,omitempty"`
-}
-
-// Instance returns youtube-dl mediaservice instance
-func (d *YoutubeDL) Instance() mediaservice.Downloader {
-	return &youtubedl.Downloader{
-		ExecutablePath: d.ExecutablePath,
-		FormatRegexp:   d.FormatRegexp,
-		CommonArgs:     d.CommonArgs,
-		SaveArgs:       d.SaveArgs,
-		ListArgs:       d.ListArgs,
-	}
 }
 
 // Endpoints contains resolved endpoint paths (or URLs) for API sections

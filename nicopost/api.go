@@ -3,27 +3,29 @@ package nicopost
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"math"
+	"net/url"
 	"path"
 	"path/filepath"
 	"sort"
 	"strings"
 	"text/template"
-	"time"
 
 	"github.com/eientei/jaroid/fedipost"
 	"github.com/eientei/jaroid/fedipost/config"
 	"github.com/eientei/jaroid/fedipost/media"
 	"github.com/eientei/jaroid/fedipost/statuses"
+	"github.com/eientei/jaroid/integration/nicovideo"
 	"github.com/eientei/jaroid/mediaservice"
-	"github.com/eientei/jaroid/nicovideo/search"
 )
 
 // MakeNicovideoStatus returns new fediverse status for provided video url/path and post template
 func MakeNicovideoStatus(
+	ctx context.Context,
 	conf *fedipost.Config,
-	client *search.Client,
+	client *nicovideo.Client,
 	videoURL, videoPath, tmpl string,
 ) (*statuses.CreateStatus, error) {
 	if tmpl == "" {
@@ -49,7 +51,7 @@ func MakeNicovideoStatus(
 
 	name := path.Base(videoURL)
 
-	res, err := client.ThumbInfo(name)
+	res, err := client.ThumbInfo(ctx, name)
 	if err != nil {
 		return nil, err
 	}
@@ -86,11 +88,12 @@ var filenameSanitizer = strings.NewReplacer(
 	"\"", "",
 	"\\", "",
 	"'", "",
+	"!", "",
 )
 
 // FilenameSanitize returns sanitized filename
 func FilenameSanitize(s string) string {
-	s = filenameSanitizer.Replace(s)
+	s = filenameSanitizer.Replace(strings.TrimSpace(s))
 
 	bs := []byte(s)
 	if len(bs) > 128 {
@@ -101,16 +104,26 @@ func FilenameSanitize(s string) string {
 }
 
 // SaveFilepath return save filepath for provided format
-func SaveFilepath(savedir, format string) string {
+func SaveFilepath(savedir, uri, format string) string {
 	fmn := format
 
-	if fmn == "" {
-		fmn = "max"
-	} else {
-		fmn = FilenameSanitize(fmn)
+	switch {
+	case fmn == "" || fmn == "max" || fmn == "inf":
+		fmn = "max-${fmt}"
+	case mediaservice.MatchesHumanSize(format):
+		fmn = FilenameSanitize(format) + "-${fmt}"
+	default:
+		fmn = FilenameSanitize(format)
 	}
 
-	return filepath.Join(savedir, "%(id)s-"+fmn+".%(ext)s")
+	var id string
+
+	u, _ := url.Parse(uri)
+	if u != nil {
+		id = path.Base(u.Path)
+	}
+
+	return filepath.Join(savedir, id+"-"+fmn+".mp4")
 }
 
 // GlobFind tries to find existing file with provided parent dir and file format id
@@ -119,8 +132,6 @@ func GlobFind(dir, fileFormatID string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-
-	fmt.Println(matches, dir, fileFormatID)
 
 	for _, m := range matches {
 		if !strings.HasSuffix(m, ".part") && !strings.HasSuffix(m, ".ass") {
@@ -137,7 +148,7 @@ func FormatFileID(fileID, format string) string {
 		return fileID + "-max"
 	}
 
-	return fileID + "-" + format
+	return fileID + "-" + FilenameSanitize(format)
 }
 
 // FormatMatch found match
@@ -149,29 +160,23 @@ type FormatMatch struct {
 // ProcessFormats finds closest lesser or equal format and smallest available format, as well listing of all formats
 func ProcessFormats(
 	lines []*mediaservice.Format,
-	dur time.Duration,
-	target float64,
-) (out string, suggest, min FormatMatch) {
+) (out string) {
 	sort.Slice(lines, func(i, j int) bool {
 		return lines[i].Video.Bitrate+lines[i].Audio.Bitrate < lines[j].Video.Bitrate+lines[j].Audio.Bitrate
 	})
 
 	var maxlength [8]int
 
-	var maxFitting, minimum float64
-
 	var vals [][]string
 
 	for _, l := range lines {
-		bitrate := l.Video.Bitrate + l.Audio.Bitrate
-
 		res := fmt.Sprintf("%dx%d", l.Video.Width, l.Video.Height)
 
 		vidrate := fmt.Sprintf("%dk", l.Video.Bitrate/1024)
 		audrate := fmt.Sprintf("%dk", l.Audio.Bitrate/1024)
 
-		size := dur.Seconds() * (float64(bitrate) / 8)
-		estimate := mediaservice.HumanSizeFormat(size)
+		size := l.SizeEstimate()
+		estimate := mediaservice.HumanSizeFormat(float64(size))
 
 		maxlength[0] = int(math.Max(float64(maxlength[0]), float64(len(l.ID))))
 		maxlength[1] = int(math.Max(float64(maxlength[1]), float64(len(l.Container))))
@@ -192,22 +197,6 @@ func ProcessFormats(
 			audrate,
 			estimate,
 		})
-
-		if minimum == 0 || size < minimum {
-			minimum = size
-			min = FormatMatch{
-				Name: l.ID,
-				Size: size,
-			}
-		}
-
-		if size > maxFitting && size <= target {
-			maxFitting = size
-			suggest = FormatMatch{
-				Name: l.ID,
-				Size: size,
-			}
-		}
 	}
 
 	headers := []string{
@@ -243,5 +232,5 @@ func ProcessFormats(
 		buf.WriteString("\n")
 	}
 
-	return buf.String(), suggest, min
+	return buf.String()
 }

@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"math"
 	"net"
 	"net/http"
 	"net/url"
@@ -16,30 +15,19 @@ import (
 	"github.com/eientei/jaroid/fedipost/statuses"
 	"github.com/eientei/jaroid/mediaservice"
 	"github.com/eientei/jaroid/nicopost"
-	"github.com/jessevdk/go-flags"
+	flags "github.com/jessevdk/go-flags"
 )
 
 var opts struct {
-	URL          *string `short:"u" long:"url" description:"Fediverse instance URL"`
-	Login        *string `short:"l" long:"login" description:"Fediverse instance login"`
-	Dir          *string `long:"dir" description:"Download directory"`
-	YoutubeDLBin *string `long:"youtube-dl-path" description:"Set youtube-dl path"`
-	Listen       *string `long:"listen" description:"Listen for authorization code" optional:"true" optional-value:":0"`
-	Acccount     struct {
+	URL      *string `short:"u" long:"url" description:"Fediverse instance URL"`
+	Login    *string `short:"l" long:"login" description:"Fediverse instance login"`
+	Dir      *string `long:"dir" description:"Download directory"`
+	Listen   *string `long:"listen" description:"Listen for authorization code" optional:"true" optional-value:":0"`
+	Acccount struct {
 		Code string `short:"c" long:"code" description:"OAuth2 code"`
 	} `command:"account"`
 	Quiet   bool `short:"q" long:"quiet" description:"Suppress extra output"`
 	Default bool `long:"default" description:"Set specifid url/login/args as default"`
-}
-
-func extractExtraArgs() (args, extraargs []string, extraok bool) {
-	for i, a := range os.Args {
-		if a == "--" {
-			return os.Args[1:i], os.Args[i+1:], true
-		}
-	}
-
-	return os.Args[1:], nil, false
 }
 
 type resp struct {
@@ -48,20 +36,16 @@ type resp struct {
 }
 
 type binconfig struct {
-	command     string
-	uri         string
-	login       string
-	videourl    string
-	format      string
-	subs        string
-	redirect    string
-	redirectch  chan *resp
-	extraargs   []string
-	target      float64
-	extraargsok bool
-	post        bool
-	list        bool
-	force       bool
+	redirectch chan *resp
+	command    string
+	uri        string
+	login      string
+	videourl   string
+	format     string
+	subs       string
+	redirect   string
+	post       bool
+	list       bool
 }
 
 func parseRest(p *flags.Parser, rest []string, c *binconfig) error {
@@ -74,17 +58,8 @@ func parseRest(p *flags.Parser, rest []string, c *binconfig) error {
 			c.post = true
 		case strings.HasPrefix(a, "sub"):
 			c.subs = a
-		case strings.ToLower(a) == "inf" || strings.ToLower(a) == "max":
-			c.target = math.MaxFloat64
 		case c.videourl == "":
 			c.videourl = a
-		case mediaservice.MatchesHumanSize(a):
-			if strings.HasSuffix(a, "!") {
-				c.force = true
-				a = strings.TrimSuffix(a, "!")
-			}
-
-			c.target = float64(mediaservice.HumanSizeParse(a))
 		case c.format == "":
 			c.format = a
 		}
@@ -124,9 +99,7 @@ func validateVideoURL(videourl string) {
 }
 
 func parseConfig() (c binconfig) {
-	var preargs []string
-
-	preargs, c.extraargs, c.extraargsok = extractExtraArgs()
+	preargs := os.Args[1:]
 
 	p := flags.NewParser(&opts, flags.Default)
 	p.SubcommandsOptional = true
@@ -148,8 +121,6 @@ func parseConfig() (c binconfig) {
 			panic(err)
 		}
 	}
-
-	c.target = math.MaxFloat64
 
 	if err == nil && c.videourl == "" && !opts.Default && p.Active == nil {
 		p.WriteHelp(os.Stdout)
@@ -360,16 +331,8 @@ func handleDefaultInstanceLogin(c *binconfig, fedipost *app.Fedipost) {
 func handleDefault(c *binconfig, fedipost *app.Fedipost) {
 	handleDefaultInstanceLogin(c, fedipost)
 
-	if c.extraargsok {
-		fedipost.Config.Mediaservice.YoutubeDL.CommonArgs = c.extraargs
-	}
-
-	if opts.YoutubeDLBin != nil {
-		fedipost.Config.Mediaservice.YoutubeDL.ExecutablePath = *opts.YoutubeDLBin
-	}
-
 	if opts.Dir != nil {
-		fedipost.Config.Mediaservice.YoutubeDL.SaveDir = *opts.Dir
+		fedipost.Config.Mediaservice.SaveDir = *opts.Dir
 	}
 
 	err := fedipost.Save()
@@ -414,23 +377,11 @@ func main() {
 
 	mediaservicecopy := fedipost.Config.Mediaservice
 
-	if c.extraargsok {
-		mediaservicecopy.YoutubeDL.CommonArgs = c.extraargs
+	if c.list {
+		handleList(ctx, c, fedipost.Client)
 	}
 
-	downloader := mediaservicecopy.Instance()
-
-	if c.format == "" {
-		handleList(ctx, c, fedipost, downloader)
-	}
-
-	if c.format == "" {
-		_, _ = fmt.Fprintln(os.Stderr, "No available formats found")
-
-		os.Exit(3)
-	}
-
-	match := handleDownload(ctx, c, &mediaservicecopy, downloader)
+	match := handleDownload(ctx, c, &mediaservicecopy, fedipost.Client)
 
 	if !opts.Quiet {
 		_, _ = fmt.Fprintln(os.Stderr, "Downloaded", c.format, "to", match)
@@ -456,7 +407,7 @@ func handleDownload(
 ) string {
 	fid := nicopost.FormatFileID(path.Base(c.videourl), c.format)
 
-	match, err := nicopost.GlobFind(mediaservicecopy.YoutubeDL.SaveDir, fid)
+	match, err := nicopost.GlobFind(mediaservicecopy.SaveDir, fid)
 	if err != nil {
 		panic(err)
 	}
@@ -465,7 +416,12 @@ func handleDownload(
 		return match
 	}
 
-	match = nicopost.SaveFilepath(mediaservicecopy.YoutubeDL.SaveDir, c.format)
+	err = os.MkdirAll(mediaservicecopy.SaveDir, 0777)
+	if err != nil {
+		panic(err)
+	}
+
+	match = nicopost.SaveFilepath(mediaservicecopy.SaveDir, c.videourl, c.format)
 
 	reporter := mediaservice.NewDummyReporter()
 
@@ -475,7 +431,9 @@ func handleDownload(
 		reporter = startReporter()
 	}
 
-	var downopts []mediaservice.SaveOption
+	downopts := &mediaservice.SaveOptions{
+		Reporter: reporter,
+	}
 
 	if c.subs != "" {
 		c.subs = strings.TrimPrefix(c.subs, "sub")
@@ -485,17 +443,10 @@ func handleDownload(
 			c.subs = "jpn"
 		}
 
-		downopts = append(downopts, &mediaservice.SaveOptionSubs{
-			Lang: c.subs,
-		})
+		downopts.Subtitles = append(downopts.Subtitles, c.subs)
 	}
 
-	_, err = downloader.SaveFormat(ctx, c.videourl, c.format, match, reporter, downopts...)
-	if err != nil {
-		panic(err)
-	}
-
-	match, err = nicopost.GlobFind(mediaservicecopy.YoutubeDL.SaveDir, fid)
+	match, err = downloader.SaveFormat(ctx, c.videourl, c.format, match, downopts)
 	if err != nil {
 		panic(err)
 	}
@@ -503,46 +454,34 @@ func handleDownload(
 	return match
 }
 
-func handleList(ctx context.Context, c binconfig, fedipost *app.Fedipost, downloader mediaservice.Downloader) {
-	thumb, err := fedipost.Client.ThumbInfo(path.Base(c.videourl))
-	if err != nil {
-		panic(err)
-	}
-
+func handleList(ctx context.Context, c binconfig, downloader mediaservice.Downloader) {
 	reporter := mediaservice.NewDummyReporter()
 
 	if !opts.Quiet {
 		reporter = startReporter()
 	}
 
-	formats, err := downloader.ListFormats(ctx, c.videourl, reporter)
+	formats, err := downloader.ListFormats(ctx, c.videourl, &mediaservice.ListOptions{
+		Reporter: reporter,
+	})
 	if err != nil {
-		panic(err)
-	}
-
-	formatted, suggest, min := nicopost.ProcessFormats(
-		formats,
-		thumb.Length,
-		c.target,
-	)
-
-	if suggest.Name != "" {
-		c.format = suggest.Name
-	} else if min.Name != "" {
-		if !c.force {
+		sugg, ok := err.(*mediaservice.ErrFormatSuggest)
+		if ok {
 			_, _ = fmt.Fprintf(
 				os.Stderr,
 				"Smallest available format is %s - %s\n"+
 					"To proceed either select it, or force to preselect smallest available with '!'\n",
-				min.Name,
-				mediaservice.HumanSizeFormat(min.Size),
+				sugg.ID,
+				mediaservice.HumanSizeFormat(float64(sugg.SizeEstimate())),
 			)
 
 			os.Exit(2)
 		}
 
-		c.format = min.Name
+		panic(err)
 	}
+
+	formatted := nicopost.ProcessFormats(formats)
 
 	if c.list {
 		fmt.Print(formatted)

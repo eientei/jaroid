@@ -4,8 +4,9 @@ package cleanup
 import (
 	"time"
 
-	"github.com/bwmarrin/discordgo"
 	"github.com/eientei/jaroid/discordbot/model"
+
+	"github.com/bwmarrin/discordgo"
 )
 
 // Task provides message removal delayed task

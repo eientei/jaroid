@@ -2,7 +2,6 @@ package nico
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path"
 	"path/filepath"
@@ -44,15 +43,13 @@ func (TaskDownload) Name() string {
 
 // TaskList provides list of video formats available
 type TaskList struct {
-	GuildID   string  `json:"guild_id"`
-	ChannelID string  `json:"channel_id"`
-	MessageID string  `json:"message_id"`
-	UserID    string  `json:"user_id"`
-	VideoURL  string  `json:"video_url"`
-	Subs      string  `json:"subs"`
-	Target    float64 `json:"target"`
-	Force     bool    `json:"force"`
-	Post      bool    `json:"post"`
+	GuildID   string `json:"guild_id"`
+	ChannelID string `json:"channel_id"`
+	MessageID string `json:"message_id"`
+	UserID    string `json:"user_id"`
+	VideoURL  string `json:"video_url"`
+	Subs      string `json:"subs"`
+	Post      bool   `json:"post"`
 }
 
 // Scope returns task scope
@@ -126,6 +123,8 @@ func subtitleFilename(s, subs string) string {
 }
 
 func (mod *module) downloadSend(task *TaskDownload, fpath string) {
+	time.Sleep(time.Second)
+
 	base := filepath.Base(fpath)
 	uri := mod.config.Config.Private.Nicovideo.Public + "/" + base
 	sb := &strings.Builder{}
@@ -185,13 +184,6 @@ func (mod *module) updateMessage(guildID, channelID, messageID, line string) {
 }
 
 func (mod *module) listFormatsVideo(task *TaskList) (err error) {
-	baseid := path.Base(task.VideoURL)
-
-	thumb, err := mod.client.ThumbInfo(baseid)
-	if err != nil {
-		return err
-	}
-
 	reporter := mediaservice.NewReporter(time.Second*10, 1)
 
 	go func() {
@@ -203,94 +195,55 @@ func (mod *module) listFormatsVideo(task *TaskList) (err error) {
 		}
 	}()
 
-	formats, err := mod.config.Downloader.ListFormats(context.Background(), task.VideoURL, reporter)
+	formats, err := mod.config.Nicovideo.ListFormats(context.Background(), task.VideoURL, &mediaservice.ListOptions{
+		Reporter: reporter,
+	})
 	if err != nil {
 		return err
 	}
 
-	buf, suggest, min := nicopost.ProcessFormats(formats, thumb.Length, task.Target)
-
-	if task.Target > 0 && suggest.Size == 0 {
-		if !task.Force {
-			est := strings.TrimSpace(mediaservice.HumanSizeFormat(min.Size))
-			note := fmt.Sprintf(
-				"<@%s> Smallest format available for <%s> - %s - est. %s. Download that?",
-				task.UserID,
-				task.VideoURL,
-				min.Name,
-				est,
-			)
-
-			mod.updateMessage(task.GuildID, task.ChannelID, task.MessageID, note)
-
-			err = mod.config.Discord.MessageReactionAdd(task.ChannelID, task.MessageID, emojiPositive)
-			if err != nil {
-				return err
-			}
-
-			return mod.config.Discord.MessageReactionAdd(task.ChannelID, task.MessageID, emojiNegative)
-		}
-
-		suggest = min
-	}
-
-	if task.Target > 0 {
-		var id string
-
-		id, err = mod.config.Repository.TaskEnqueue(&TaskDownload{
-			GuildID:   task.GuildID,
-			ChannelID: task.ChannelID,
-			MessageID: task.MessageID,
-			VideoURL:  task.VideoURL,
-			Format:    suggest.Name,
-			UserID:    task.UserID,
-			Post:      task.Post,
-			Subs:      task.Subs,
-		}, 0, 0)
-
-		est := strings.TrimSpace(mediaservice.HumanSizeFormat(suggest.Size))
-		note := fmt.Sprintf(id+" Starting download... (%s, %s)", suggest.Name, est)
-
-		mod.updateMessage(task.GuildID, task.ChannelID, task.MessageID, note)
-
-		_ = mod.config.Discord.MessageReactionAdd(task.ChannelID, task.MessageID, emojiStop)
-
-		return err
-	}
+	buf := nicopost.ProcessFormats(formats)
 
 	mod.updateMessage(task.GuildID, task.ChannelID, task.MessageID, "```"+buf+"```")
 
 	return nil
 }
 
-func (mod *module) downloadVideo(ctx context.Context, id string, task *TaskDownload) (err error) {
-	output := nicopost.SaveFilepath(mod.config.Config.Private.Nicovideo.Directory, task.Format)
-
-	var opts []mediaservice.SaveOption
-
-	if task.Subs != "" {
-		opts = append(opts, &mediaservice.SaveOptionSubs{
-			Lang: task.Subs,
-		})
+func (mod *module) downloadVideo(ctx context.Context, id string, task *TaskDownload) (fmtname string, err error) {
+	err = os.MkdirAll(mod.config.Config.Private.Nicovideo.Directory, 0777)
+	if err != nil {
+		return "", err
 	}
 
-	reporter := mediaservice.NewReporter(time.Second*10, 1)
+	output := nicopost.SaveFilepath(mod.config.Config.Private.Nicovideo.Directory, task.VideoURL, task.Format)
+
+	opts := &mediaservice.SaveOptions{
+		Reporter: mediaservice.NewReporter(time.Second*10, 1),
+	}
+
+	if task.Subs != "" {
+		opts.Subtitles = append(opts.Subtitles, task.Subs)
+	}
 
 	go func() {
-		for r := range reporter.Messages() {
-			_, err = mod.config.Discord.ChannelMessageEdit(task.ChannelID, task.MessageID, id+" "+r)
+		for r := range opts.Reporter.Messages() {
+			_, err = mod.config.Discord.ChannelMessageEdit(task.ChannelID, task.MessageID, id+" [downloading] "+r)
 			if err != nil {
 				mod.config.Log.WithError(err).Error("updating message")
 			}
 		}
 	}()
 
-	_, err = mod.config.Downloader.SaveFormat(ctx, task.VideoURL, task.Format, output, reporter, opts...)
+	fmtname, err = mod.config.Nicovideo.SaveFormat(ctx, task.VideoURL, task.Format, output, opts)
 	if err != nil {
-		return err
+		opts.Reporter.Submit("ERROR: "+err.Error(), true)
+
+		mod.config.Log.WithError(err).Error("downloading file")
+
+		return "", err
 	}
 
-	return nil
+	return
 }
 
 func (mod *module) startList() {
@@ -393,8 +346,10 @@ func (mod *module) startDownload() {
 		mod.cancel = cancel
 		mod.m.Unlock()
 
-		err = mod.tryPerform(func() error {
-			return mod.downloadVideo(ctx, id, task)
+		err = mod.tryPerform(func() (err error) {
+			fpath, err = mod.downloadVideo(ctx, id, task)
+
+			return
 		})
 
 		cancel()
@@ -412,8 +367,7 @@ func (mod *module) startDownload() {
 			continue
 		}
 
-		if fpath, err = nicopost.GlobFind(mod.config.Config.Private.Nicovideo.Directory, fileID); err == nil &&
-			len(fpath) > 0 {
+		if len(fpath) > 0 {
 			mod.downloadSend(task, fpath)
 		}
 

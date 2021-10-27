@@ -1,4 +1,5 @@
 // Package youtubedl provides downloader service implementation using system youtube-dl
+// deprecated
 package youtubedl
 
 import (
@@ -134,7 +135,7 @@ func loggable(reg *regexp.Regexp, line string) bool {
 // ListFormatsRaw implementation
 func (d *Downloader) ListFormatsRaw(
 	ctx context.Context,
-	reporter mediaservice.Reporter,
+	opts *mediaservice.ListOptions,
 	extraargs ...string,
 ) (formats []*mediaservice.Format, err error) {
 	args := append([]string{}, d.CommonArgs...)
@@ -152,6 +153,12 @@ func (d *Downloader) ListFormatsRaw(
 	}
 
 	cmd := exec.Command(d.ExecutablePath, args...)
+
+	var reporter mediaservice.Reporter
+
+	if opts != nil {
+		reporter = opts.Reporter
+	}
 
 	lines, err := d.readlines(ctx, cmd, reporter, formatRegexp)
 	if err != nil {
@@ -177,6 +184,12 @@ func (d *Downloader) ListFormatsRaw(
 			continue
 		}
 
+		idparts := strings.Split(id, "-")
+
+		if len(idparts) != 2 {
+			continue
+		}
+
 		w, _ := strconv.ParseUint(width, 10, 64)
 		h, _ := strconv.ParseUint(height, 10, 64)
 
@@ -184,15 +197,18 @@ func (d *Downloader) ListFormatsRaw(
 			ID:        id,
 			Container: mediaservice.Container(container),
 			Audio: mediaservice.AudioFormat{
+				ID:      idparts[1],
 				Codec:   mediaservice.NewAudioCodec(audioCodec),
 				Bitrate: mediaservice.HumanSizeParse(audioBitrate),
 			},
 			Video: mediaservice.VideoFormat{
+				ID:      idparts[0],
 				Codec:   mediaservice.NewVideoCodec(videoCodec),
 				Bitrate: mediaservice.HumanSizeParse(videoBitrate),
 				Width:   w,
 				Height:  h,
 			},
+			Duration: 0,
 		})
 	}
 
@@ -203,15 +219,15 @@ func (d *Downloader) ListFormatsRaw(
 func (d *Downloader) ListFormats(
 	ctx context.Context,
 	url string,
-	reporter mediaservice.Reporter,
+	opts *mediaservice.ListOptions,
 ) (formats []*mediaservice.Format, err error) {
-	return d.ListFormatsRaw(ctx, reporter, "-F", url)
+	return d.ListFormatsRaw(ctx, opts, "-F", url)
 }
 
 // SaveFormatRaw implementation
 func (d *Downloader) SaveFormatRaw(
 	ctx context.Context,
-	reporter mediaservice.Reporter,
+	opts *mediaservice.SaveOptions,
 	extraargs ...string,
 ) (lines []string, err error) {
 	args := append([]string{}, d.CommonArgs...)
@@ -220,6 +236,12 @@ func (d *Downloader) SaveFormatRaw(
 
 	cmd := exec.Command(d.ExecutablePath, args...)
 
+	var reporter mediaservice.Reporter
+
+	if opts != nil {
+		reporter = opts.Reporter
+	}
+
 	return d.readlines(ctx, cmd, reporter, nil)
 }
 
@@ -227,9 +249,8 @@ func (d *Downloader) SaveFormatRaw(
 func (d *Downloader) SaveFormat(
 	ctx context.Context,
 	url, formatID, outpath string,
-	reporter mediaservice.Reporter,
-	opts ...mediaservice.SaveOption,
-) (lines []string, err error) {
+	opts *mediaservice.SaveOptions,
+) (err error) {
 	var args []string
 
 	if formatID != "" {
@@ -238,12 +259,11 @@ func (d *Downloader) SaveFormat(
 
 	args = append(args, "-o", outpath, url)
 
-	for _, o := range opts {
-		to, ok := o.(*mediaservice.SaveOptionSubs)
-		if ok {
-			args = append(args, "--write-sub", "--sub-lang", to.Lang)
-		}
+	if opts != nil && len(opts.Subtitles) > 0 {
+		args = append(args, "--write-sub", "--sub-lang", strings.Join(opts.Subtitles, ","))
 	}
 
-	return d.SaveFormatRaw(ctx, reporter, args...)
+	_, err = d.SaveFormatRaw(ctx, opts, args...)
+
+	return
 }

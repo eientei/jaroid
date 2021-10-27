@@ -1,19 +1,34 @@
-// Package mediaservice provides general API for external service downloa/search functions
+// Package mediaservice contains API for media content downloader as well as child implementation packages
 package mediaservice
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 var (
 	// ErrUnknownFormat is returned when unknown media format is selected
 	ErrUnknownFormat = errors.New("unknown format")
+
+	formatSizeRegex = regexp.MustCompile(`^\s*([0-9]+)((?i)[bkmg]?)(!?)\s*$`)
 )
+
+// ErrFormatSuggest is returned when no format is smaller than specified constraint with smallest available
+// as suggestion
+type ErrFormatSuggest struct {
+	*Format
+}
+
+// Error implementation
+func (v *ErrFormatSuggest) Error() string {
+	return "Smallest available format is larger than requested constraint"
+}
 
 // AudioCodec enumeration
 type AudioCodec string
@@ -32,6 +47,7 @@ func NewAudioCodec(s string) AudioCodec {
 
 // AudioFormat details
 type AudioFormat struct {
+	ID         string
 	Codec      AudioCodec
 	Bitrate    uint64
 	Samplerate uint64
@@ -55,6 +71,7 @@ func NewVideoCodec(s string) VideoCodec {
 
 // VideoFormat details
 type VideoFormat struct {
+	ID      string
 	Codec   VideoCodec
 	Bitrate uint64
 	Width   uint64
@@ -81,15 +98,43 @@ type Format struct {
 	Container Container
 	Audio     AudioFormat
 	Video     VideoFormat
+	Duration  time.Duration
 }
 
-// SaveOption functional option
-type SaveOption interface {
+// SizeEstimate returns file size estimate based on duration and bitrate
+func (f *Format) SizeEstimate() uint64 {
+	br := f.Audio.Bitrate + f.Video.Bitrate
+
+	return (uint64(f.Duration.Seconds()) * br) / 8
 }
 
-// SaveOptionSubs save subs when downloading
-type SaveOptionSubs struct {
-	Lang string
+// ListOptions options for ListFormats
+type ListOptions struct {
+	Reporter Reporter
+}
+
+// GetReporter or default dummy
+func (s *ListOptions) GetReporter() Reporter {
+	if s == nil || s.Reporter == nil {
+		return NewDummyReporter()
+	}
+
+	return s.Reporter
+}
+
+// SaveOptions options for SaveFormat
+type SaveOptions struct {
+	Reporter  Reporter
+	Subtitles []string
+}
+
+// GetReporter or default dummy
+func (s *SaveOptions) GetReporter() Reporter {
+	if s == nil || s.Reporter == nil {
+		return NewDummyReporter()
+	}
+
+	return s.Reporter
 }
 
 // Downloader provides list of available formats and performs download of selected format
@@ -97,27 +142,24 @@ type Downloader interface {
 	ListFormats(
 		ctx context.Context,
 		url string,
-		reporter Reporter,
+		opts *ListOptions,
 	) ([]*Format, error)
 
 	SaveFormat(
 		ctx context.Context,
 		url, formatID, outpath string,
-		reporter Reporter,
-		opts ...SaveOption,
-	) ([]string, error)
+		opts *SaveOptions,
+	) (string, error)
 }
-
-var numRegexp = regexp.MustCompile(`^\s*([0-9.]+)(\S*)\s*$`)
 
 // MatchesHumanSize returns true if given string conforms to human size format
 func MatchesHumanSize(s string) bool {
-	return numRegexp.MatchString(s)
+	return formatSizeRegex.MatchString(s)
 }
 
 // HumanSizeParse parses human-formatted size as bytes
 func HumanSizeParse(s string) uint64 {
-	parts := numRegexp.FindStringSubmatch(s)
+	parts := formatSizeRegex.FindStringSubmatch(s)
 	if len(parts) < 3 {
 		return 0
 	}
@@ -160,4 +202,93 @@ func HumanSizeFormat(size float64) string {
 	}
 
 	return fmt.Sprintf("%5.1f%s", size, humanFileSuffixes[i])
+}
+
+func parseFormatSize(formatID string) (dsize uint64, wildcard bool, tgt string, err error) {
+	switch {
+	case formatID == "inf" || formatID == "max" || formatID == "":
+		dsize = math.MaxUint64
+	case formatSizeRegex.MatchString(formatID):
+		parts := formatSizeRegex.FindStringSubmatch(formatID)
+		sizestr, sizespecstr, wildstr := parts[1], parts[2], parts[3]
+
+		dsize = HumanSizeParseParts(sizestr, sizespecstr, 1024)
+		if dsize == 0 {
+			err = strconv.ErrSyntax
+
+			return
+		}
+
+		wildcard = wildstr == "!"
+	default:
+		parts := strings.Split(formatID, "-")
+
+		if len(parts) != 2 {
+			err = ErrUnknownFormat
+
+			return
+		}
+
+		vformat, aformat := parts[0], parts[1]
+
+		tgt = strings.TrimPrefix(vformat, "archive_") + "-" + strings.TrimPrefix(aformat, "archive_")
+	}
+
+	return
+}
+
+func findFormatSize(formats []*Format, tgt string, dsize uint64) (aformatid, vformatid string) {
+	for i := len(formats) - 1; i >= 0; i-- {
+		f := formats[i]
+
+		switch {
+		case tgt != "":
+			if f.ID == tgt {
+				aformatid, vformatid = f.Audio.ID, f.Video.ID
+
+				return
+			}
+		default:
+			if f.SizeEstimate() < dsize {
+				aformatid, vformatid = f.Audio.ID, f.Video.ID
+
+				return
+			}
+		}
+	}
+
+	return
+}
+
+// SelectFormat suitable to formatid selector
+func SelectFormat(
+	formats []*Format,
+	formatID string,
+) (aformatid, vformatid string, err error) {
+	dsize, wildcard, tgt, err := parseFormatSize(formatID)
+	if err != nil {
+		return
+	}
+
+	aformatid, vformatid = findFormatSize(formats, tgt, dsize)
+
+	if tgt == "" && aformatid == "" && vformatid == "" && len(formats) > 0 {
+		f := formats[0]
+
+		if !wildcard {
+			err = &ErrFormatSuggest{
+				Format: f,
+			}
+
+			return
+		}
+
+		aformatid, vformatid = f.Audio.ID, f.Video.ID
+	}
+
+	if vformatid == "" || aformatid == "" {
+		err = ErrUnknownFormat
+	}
+
+	return
 }

@@ -5,10 +5,11 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/eientei/jaroid/discordbot/bot"
+
 	"github.com/jmoiron/sqlx"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/eientei/jaroid/discordbot/bot"
 )
 
 // New provides module instance

@@ -2,7 +2,7 @@
 package model
 
 import (
-	"github.com/go-redis/redis/v7"
+	redis "github.com/go-redis/redis/v7"
 )
 
 // Task provides interface for persistable tasks

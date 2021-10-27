@@ -8,11 +8,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bwmarrin/discordgo"
 	"github.com/eientei/jaroid/discordbot/bot"
 	"github.com/eientei/jaroid/discordbot/modules/auth"
 	"github.com/eientei/jaroid/discordbot/modules/cleanup"
 	"github.com/eientei/jaroid/discordbot/router"
+
+	"github.com/bwmarrin/discordgo"
 )
 
 var errNoGreet = errors.New("no greet")

@@ -4,12 +4,10 @@ import (
 	"context"
 	"time"
 
-	"github.com/eientei/jaroid/nicopost"
-
-	"golang.org/x/oauth2"
-
 	"github.com/eientei/jaroid/fedipost"
 	"github.com/eientei/jaroid/fedipost/statuses"
+	"github.com/eientei/jaroid/nicopost"
+	"golang.org/x/oauth2"
 )
 
 func (mod *module) pleromaPostEnqueue(task *TaskDownload, fpath string) {
@@ -46,7 +44,7 @@ func (mod *module) startPleromaPost() {
 			continue
 		}
 
-		err = mod.pleromaPost(task)
+		err = mod.pleromaPost(context.Background(), task)
 		if err != nil {
 			mod.config.Log.WithError(err).Error("Posting pleroma status")
 			_ = mod.config.Discord.MessageReactionAdd(task.ChannelID, task.MessageID, emojiNegative)
@@ -58,7 +56,7 @@ func (mod *module) startPleromaPost() {
 	}
 }
 
-func (mod *module) pleromaPost(task *TaskPleromaPost) error {
+func (mod *module) pleromaPost(ctx context.Context, task *TaskPleromaPost) error {
 	config := &fedipost.Config{
 		HTTPClient: oauth2.NewClient(context.Background(), oauth2.StaticTokenSource(&oauth2.Token{
 			AccessToken:  task.PleromaAuth,
@@ -74,7 +72,7 @@ func (mod *module) pleromaPost(task *TaskPleromaPost) error {
 		OauthAuthorizeEndpoint: task.PleromaHost + "/oauth/authorize",
 	}
 
-	status, err := nicopost.MakeNicovideoStatus(config, mod.client, task.VideoURL, task.FilePath, "")
+	status, err := nicopost.MakeNicovideoStatus(ctx, config, mod.config.Nicovideo, task.VideoURL, task.FilePath, "")
 	if err != nil {
 		return err
 	}

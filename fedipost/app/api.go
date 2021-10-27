@@ -4,23 +4,27 @@ package app
 import (
 	"context"
 	"errors"
+	"net/http"
 	"os"
 	"path/filepath"
 
-	"github.com/eientei/jaroid/fedipost"
+	"github.com/eientei/cookiejarx"
+	"github.com/eientei/jaroid/util/httputil/middleware"
 
+	"github.com/eientei/jaroid/fedipost"
 	"github.com/eientei/jaroid/fedipost/apps"
 	"github.com/eientei/jaroid/fedipost/config"
 	"github.com/eientei/jaroid/fedipost/statuses"
 	"github.com/eientei/jaroid/nicopost"
-	"github.com/eientei/jaroid/nicovideo/search"
+
+	"github.com/eientei/jaroid/integration/nicovideo"
 	"golang.org/x/oauth2"
 )
 
 // Fedipost contains fedipost app state
 type Fedipost struct {
 	Config         *config.Root
-	Client         *search.Client
+	Client         *nicovideo.Client
 	FedipostConfig *fedipost.Config
 	Template       string
 	ConfigLocation string
@@ -40,7 +44,6 @@ func New(configpath string) (*Fedipost, error) {
 	f := &Fedipost{
 		ConfigLocation: configpath,
 		Config:         &config.Root{},
-		Client:         search.New(),
 	}
 
 	err := f.Reload()
@@ -66,6 +69,42 @@ func (f *Fedipost) Reload() error {
 	if err != nil {
 		return err
 	}
+
+	var auth *nicovideo.Auth
+
+	if f.Config.Mediaservice.Auth.Username != "" && f.Config.Mediaservice.Auth.Password != "" {
+		auth = &nicovideo.Auth{
+			Username: f.Config.Mediaservice.Auth.Username,
+			Password: f.Config.Mediaservice.Auth.Password,
+		}
+	}
+
+	storage := cookiejarx.NewInMemoryStorage()
+
+	jar, err := cookiejarx.New(&cookiejarx.Options{
+		Storage: storage,
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	cookiejarfile := &middleware.ClientCookieJarFile{
+		Storage:  storage,
+		Jar:      jar,
+		FilePath: f.Config.Mediaservice.CookieJar,
+	}
+
+	nicovideoClient := &http.Client{
+		Transport: &middleware.Transport{
+			Transport:   http.DefaultTransport,
+			Middlewares: []middleware.Client{cookiejarfile},
+		},
+	}
+
+	f.Client = nicovideo.New(&nicovideo.Config{
+		HTTPClient: nicovideoClient,
+		Auth:       auth,
+	})
 
 	return nil
 }
@@ -177,7 +216,7 @@ func (f *Fedipost) MakeStatus(
 		return nil, err
 	}
 
-	status, err := nicopost.MakeNicovideoStatus(conf, f.Client, videouri, videopath, tmpl)
+	status, err := nicopost.MakeNicovideoStatus(ctx, conf, f.Client, videouri, videopath, tmpl)
 	if err != nil {
 		return nil, err
 	}

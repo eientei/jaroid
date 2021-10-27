@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"net/url"
 	"regexp"
 	"strconv"
@@ -19,8 +18,7 @@ import (
 	"github.com/eientei/jaroid/discordbot/bot"
 	"github.com/eientei/jaroid/discordbot/modules/auth"
 	"github.com/eientei/jaroid/discordbot/router"
-	"github.com/eientei/jaroid/mediaservice"
-	"github.com/eientei/jaroid/nicovideo/search"
+	"github.com/eientei/jaroid/integration/nicovideo"
 	"github.com/sirupsen/logrus"
 )
 
@@ -56,7 +54,6 @@ type server struct {
 // New provides module instacne
 func New() bot.Module {
 	return &module{
-		client:  search.New(),
 		servers: make(map[string]*server),
 		m:       &sync.Mutex{},
 	}
@@ -64,7 +61,6 @@ func New() bot.Module {
 
 type module struct {
 	config  *bot.Configuration
-	client  *search.Client
 	servers map[string]*server
 	m       *sync.Mutex
 	task    *TaskDownload
@@ -112,8 +108,8 @@ func (mod *module) Shutdown(config *bot.Configuration) {
 
 }
 
-func (mod *module) backgroundServer(s, name string) {
-	feed := &feed{}
+func (mod *module) backgroundServer(ctx context.Context, s, name string) {
+	fd := &feed{}
 
 	t, err := mod.config.Repository.ConfigGet(s, "nico", name)
 	if err != nil {
@@ -126,19 +122,19 @@ func (mod *module) backgroundServer(s, name string) {
 		return
 	}
 
-	err = json.Unmarshal([]byte(t), feed)
+	err = json.Unmarshal([]byte(t), fd)
 	if err != nil {
 		mod.config.Log.WithError(err).Error("Unmarshaling nico feed key", s, name)
 		return
 	}
 
-	err = mod.executeFeed(feed)
+	err = mod.executeFeed(ctx, fd)
 	if err != nil {
 		mod.config.Log.WithError(err).Error("Executing nico feed key", s, name)
 		return
 	}
 
-	bs, err := json.Marshal(feed)
+	bs, err := json.Marshal(fd)
 	if err != nil {
 		mod.config.Log.WithError(err).Error("Marshaling nico feed key", s, name)
 		return
@@ -163,7 +159,7 @@ func (mod *module) backgroundFeed() {
 
 			for _, name := range rs {
 				name = strings.TrimPrefix(name, prefix)
-				mod.backgroundServer(s, name)
+				mod.backgroundServer(context.Background(), s, name)
 			}
 		}
 
@@ -172,37 +168,37 @@ func (mod *module) backgroundFeed() {
 }
 
 type feed struct {
-	ChannelID string          `json:"channel_id"`
-	Query     string          `json:"query"`
-	Executed  time.Time       `json:"executed"`
-	Last      time.Time       `json:"last"`
-	Targets   []search.Field  `json:"targets"`
-	Filters   []search.Filter `json:"filters"`
-	Period    time.Duration   `json:"period"`
+	ChannelID string             `json:"channel_id"`
+	Query     string             `json:"query"`
+	Executed  time.Time          `json:"executed"`
+	Last      time.Time          `json:"last"`
+	Targets   []nicovideo.Field  `json:"targets"`
+	Filters   []nicovideo.Filter `json:"filters"`
+	Period    time.Duration      `json:"period"`
 }
 
-func (mod *module) executeFeedSearch(feed *feed) (s *search.Search) {
-	s = &search.Search{}
+func (mod *module) executeFeedSearch(feed *feed) (s *nicovideo.Search) {
+	s = &nicovideo.Search{}
 
 	s.Query = feed.Query
 	s.Targets = feed.Targets
-	s.Fields = []search.Field{
-		search.FieldContentID,
-		search.FieldTags,
-		search.FieldStartTime,
-		search.FieldLengthSeconds,
-		search.FieldViewCounter,
-		search.FieldMylistCounter,
+	s.Fields = []nicovideo.Field{
+		nicovideo.FieldContentID,
+		nicovideo.FieldTags,
+		nicovideo.FieldStartTime,
+		nicovideo.FieldLengthSeconds,
+		nicovideo.FieldViewCounter,
+		nicovideo.FieldMylistCounter,
 	}
 	s.Filters = feed.Filters
-	s.SortField = search.FieldStartTime
-	s.SortDirection = search.SortDesc
+	s.SortField = nicovideo.FieldStartTime
+	s.SortDirection = nicovideo.SortDesc
 	s.Limit = mod.config.Config.Private.Nicovideo.Limit
 
 	if !feed.Last.IsZero() {
-		s.Filters = append(s.Filters, search.Filter{
-			Field:    search.FieldStartTime,
-			Operator: search.OperatorGTE,
+		s.Filters = append(s.Filters, nicovideo.Filter{
+			Field:    nicovideo.FieldStartTime,
+			Operator: nicovideo.OperatorGTE,
 			Values:   []string{feed.Last.Add(time.Second).Format(time.RFC3339)},
 		})
 	}
@@ -210,7 +206,7 @@ func (mod *module) executeFeedSearch(feed *feed) (s *search.Search) {
 	return
 }
 
-func (mod *module) executeFeed(feed *feed) error {
+func (mod *module) executeFeed(ctx context.Context, feed *feed) error {
 	if time.Since(feed.Executed) < feed.Period {
 		return nil
 	}
@@ -231,7 +227,7 @@ func (mod *module) executeFeed(feed *feed) error {
 		return nil
 	}
 
-	res, err := mod.client.Search(mod.executeFeedSearch(feed))
+	res, err := mod.config.Nicovideo.Search(ctx, mod.executeFeedSearch(feed))
 	if err != nil {
 		backed = time.Now()
 
@@ -261,6 +257,8 @@ func (mod *module) executeFeed(feed *feed) error {
 		}
 
 		feed.Last = r.StartTime
+
+		time.Sleep(time.Minute * 5)
 	}
 
 	if feed.Last.IsZero() {
@@ -312,35 +310,6 @@ func (mod *module) commandDownload(ctx *router.Context) error {
 			MessageID: msg.ID,
 			VideoURL:  urlraw,
 			UserID:    ctx.Message.Author.ID,
-		}, 0, 0)
-
-		return err
-	}
-
-	if mediaservice.MatchesHumanSize(format) || strings.ToLower(format) == "inf" {
-		var force bool
-
-		if strings.HasSuffix(format, "!") {
-			force = true
-			format = strings.TrimSuffix(format, "!")
-		}
-
-		target := float64(mediaservice.HumanSizeParse(format))
-
-		if strings.ToLower(format) == "inf" {
-			target = math.MaxFloat64
-		}
-
-		_, err = mod.config.Repository.TaskEnqueue(&TaskList{
-			GuildID:   ctx.Message.GuildID,
-			ChannelID: msg.ChannelID,
-			MessageID: msg.ID,
-			UserID:    ctx.Message.Author.ID,
-			VideoURL:  urlraw,
-			Target:    target,
-			Force:     force,
-			Post:      post,
-			Subs:      subs,
 		}, 0, 0)
 
 		return err
@@ -404,38 +373,38 @@ func (mod *module) commandFeed(ctx *router.Context) error {
 		return err
 	}
 
-	s := mod.parseSearch(ctx.Args, []search.Field{}, 0, 20)
+	s := mod.parseSearch(ctx.Args, []nicovideo.Field{}, 0, 20)
 
 	t, err := mod.config.Repository.ConfigGet(ctx.Message.GuildID, "nico", name)
 	if err != nil {
 		return err
 	}
 
-	feed := &feed{}
+	fd := &feed{}
 
 	if t != "" {
-		err = json.Unmarshal([]byte(t), feed)
+		err = json.Unmarshal([]byte(t), fd)
 		if err != nil {
 			return err
 		}
 	}
 
-	feed.ChannelID = channel.ID
-	feed.Targets = s.Targets
-	feed.Query = s.Query
-	feed.Filters = s.Filters
+	fd.ChannelID = channel.ID
+	fd.Targets = s.Targets
+	fd.Query = s.Query
+	fd.Filters = s.Filters
 
-	feed.Period, err = time.ParseDuration(period)
+	fd.Period, err = time.ParseDuration(period)
 	if err != nil {
 		return err
 	}
 
-	err = mod.executeFeed(feed)
+	err = mod.executeFeed(context.Background(), fd)
 	if err != nil {
 		return err
 	}
 
-	bs, err := json.Marshal(feed)
+	bs, err := json.Marshal(fd)
 	if err != nil {
 		return err
 	}
@@ -614,7 +583,7 @@ func (mod *module) handlerReactionAdd(session *discordgo.Session, messageReactio
 		return
 	}
 
-	s := &search.Search{}
+	s := &nicovideo.Search{}
 
 	err = json.Unmarshal(bs, s)
 	if err != nil {
@@ -645,7 +614,7 @@ func (mod *module) handlerReactionAdd(session *discordgo.Session, messageReactio
 		s.Offset -= 5
 	}
 
-	content, _, err = mod.listRender(messageReactionAdd.UserID, s)
+	content, _, err = mod.listRender(context.Background(), messageReactionAdd.UserID, s)
 	if err != nil {
 		mod.config.Log.WithError(err).Error("Rendering list", messageReactionAdd.ChannelID, messageReactionAdd.MessageID)
 		return
@@ -658,7 +627,7 @@ func (mod *module) handlerReactionAdd(session *discordgo.Session, messageReactio
 	}
 }
 
-func (mod *module) singleRender(res *search.Item) string {
+func (mod *module) singleRender(res *nicovideo.Item) string {
 	sb := &strings.Builder{}
 	_, _ = sb.WriteString("https://www.nicovideo.jp/watch/" + res.ContentID)
 	_, _ = sb.WriteString("\nposted: " + res.ItemRaw.StartTime)
@@ -671,13 +640,13 @@ func (mod *module) singleRender(res *search.Item) string {
 }
 
 func (mod *module) commandSearch(ctx *router.Context) error {
-	res, err := mod.client.Search(mod.parseSearch(ctx.Args, []search.Field{
-		search.FieldContentID,
-		search.FieldTags,
-		search.FieldStartTime,
-		search.FieldLengthSeconds,
-		search.FieldViewCounter,
-		search.FieldMylistCounter,
+	res, err := mod.config.Nicovideo.Search(context.Background(), mod.parseSearch(ctx.Args, []nicovideo.Field{
+		nicovideo.FieldContentID,
+		nicovideo.FieldTags,
+		nicovideo.FieldStartTime,
+		nicovideo.FieldLengthSeconds,
+		nicovideo.FieldViewCounter,
+		nicovideo.FieldMylistCounter,
 	}, 0, 1))
 	if err != nil {
 		return err
@@ -692,12 +661,12 @@ func (mod *module) commandSearch(ctx *router.Context) error {
 	return err
 }
 
-func (mod *module) listRender(authorID string, search *search.Search) (
+func (mod *module) listRender(ctx context.Context, authorID string, search *nicovideo.Search) (
 	content string,
-	res *search.Result,
+	res *nicovideo.Result,
 	err error,
 ) {
-	res, err = mod.client.Search(search)
+	res, err = mod.config.Nicovideo.Search(ctx, search)
 	if err != nil {
 		return "", nil, err
 	}
@@ -738,18 +707,18 @@ func (mod *module) listRender(authorID string, search *search.Search) (
 }
 
 func (mod *module) commandList(ctx *router.Context) error {
-	s := mod.parseSearch(ctx.Args, []search.Field{
-		search.FieldContentID,
-		search.FieldTitle,
-		search.FieldDescription,
-		search.FieldTags,
-		search.FieldStartTime,
-		search.FieldLengthSeconds,
-		search.FieldViewCounter,
-		search.FieldMylistCounter,
+	s := mod.parseSearch(ctx.Args, []nicovideo.Field{
+		nicovideo.FieldContentID,
+		nicovideo.FieldTitle,
+		nicovideo.FieldDescription,
+		nicovideo.FieldTags,
+		nicovideo.FieldStartTime,
+		nicovideo.FieldLengthSeconds,
+		nicovideo.FieldViewCounter,
+		nicovideo.FieldMylistCounter,
 	}, 0, 5)
 
-	content, res, err := mod.listRender(ctx.Message.Author.ID, s)
+	content, res, err := mod.listRender(context.Background(), ctx.Message.Author.ID, s)
 	if err != nil {
 		return err
 	}
