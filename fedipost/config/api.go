@@ -86,10 +86,6 @@ func (r *Root) Save(writer io.Writer) error {
 		r.Global.UserAgent = DefaultUseragent
 	}
 
-	if r.Mediaservice.SaveDir == "" {
-		r.Mediaservice.SaveDir = filepath.Join(os.TempDir(), "jaroid")
-	}
-
 	if r.Mediaservice.CookieJar == "" {
 		homedir, err := os.UserHomeDir()
 		if err != nil {
@@ -97,11 +93,6 @@ func (r *Root) Save(writer io.Writer) error {
 		}
 
 		r.Mediaservice.CookieJar = filepath.Join(homedir, ".config", "jaroid", "cookie.jar")
-	}
-
-	err := os.MkdirAll(filepath.Dir(r.Mediaservice.CookieJar), 0777)
-	if err != nil {
-		return err
 	}
 
 	return yaml.NewEncoder(writer).Encode(r)

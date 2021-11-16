@@ -370,9 +370,11 @@ func (client *Client) auth(reporter mediaservice.Reporter) (bool, error) {
 	succ := resp.Request.URL.Query().Get("message") == ""
 
 	if !succ {
+		client.Auth.invalid = true
+
 		reporter.Submit("Invalid credentials", true)
 
-		client.Auth.invalid = true
+		return false, fmt.Errorf("invalid credentials")
 	}
 
 	return succ, nil
@@ -712,8 +714,9 @@ func (client *Client) reportProgress(ctx context.Context, reporter mediaservice.
 func (client *Client) SaveFormat(
 	ctx context.Context,
 	urls, formatID, outpath string,
+	reuse bool,
 	opts *mediaservice.SaveOptions,
-) (string, error) {
+) (fname string, err error) {
 	reporter := opts.GetReporter()
 
 	data, err := client.fetchAPIData(ctx, urls, reporter)
@@ -743,16 +746,27 @@ func (client *Client) SaveFormat(
 
 	outpath = strings.ReplaceAll(outpath, "${fmt}", fmtname)
 
-	f, err := os.OpenFile(outpath+".part", os.O_RDWR|os.O_CREATE, 0666)
+	tempname := outpath
+	if reuse {
+		tempname = outpath + ".part"
+	}
+
+	f, err := os.OpenFile(tempname, os.O_RDWR|os.O_CREATE, 0666)
 	if err != nil {
 		return "", err
 	}
 
 	defer func() {
 		_ = f.Close()
+
+		if err != nil || !reuse {
+			return
+		}
+
+		_ = os.Rename(tempname, outpath)
 	}()
 
-	err = client.openCopyFile(f, outpath, fmtname)
+	err = client.openCopyFile(f, outpath, fmtname, reuse)
 	if err != nil {
 		return "", err
 	}
@@ -778,28 +792,14 @@ func (client *Client) SaveFormat(
 		_ = resp.Body.Close()
 	}()
 
-	go client.keepalive(cctx, &session, &sess, &sessdata)
-
-	cr := resp.Header.Get("content-range")
-
-	parts := strings.Split(cr, "/")
-	if len(parts) != 2 {
-		return "", fmt.Errorf("invalid session")
-	}
-
-	cl, err := strconv.ParseInt(parts[1], 10, 64)
+	cl, err := extractContentsRange(resp)
 	if err != nil {
 		return "", err
 	}
 
+	go client.keepalive(cctx, &session, &sess, &sessdata)
+
 	if cl == finfo.Size() {
-		_ = f.Close()
-
-		err = os.Rename(outpath+".part", outpath)
-		if err != nil {
-			return "", err
-		}
-
 		return outpath, nil
 	}
 
@@ -810,12 +810,16 @@ func (client *Client) SaveFormat(
 		return "", err
 	}
 
-	_ = f.Close()
+	return outpath, nil
+}
 
-	err = os.Rename(outpath+".part", outpath)
-	if err != nil {
-		return "", err
+func extractContentsRange(resp *http.Response) (int64, error) {
+	cr := resp.Header.Get("content-range")
+
+	parts := strings.Split(cr, "/")
+	if len(parts) != 2 {
+		return 0, fmt.Errorf("invalid session")
 	}
 
-	return outpath, nil
+	return strconv.ParseInt(parts[1], 10, 64)
 }

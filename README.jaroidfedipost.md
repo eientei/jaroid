@@ -1,40 +1,46 @@
-This utility provides CLI interface to authenticate in pleroma/mastadon 
-account using OAuth2 API and make posts with content of [nicovideo.jp](https://www.nicovideo.jp/) 
-videos using https://github.com/animelover1984/youtube-dl/tree/Niconico_download_fix script.
+This CLI utility downloads videos from [nicovideo.jp](https://www.nicovideo.jp/) also optionally uploading them as
+pleroma/mastodon instance posts, using OAuth2 API to authenticate under provided account.
 
 USAGE
 ---
 
 ```
 Usage:
-  jaroidfedi https://www.nicovideo.jp/watch/sm0000000 <size[!]|formatid|max|list> [sub[:<jp|en|cn>]] [post] [account]
+  jaroidfedi https://www.nicovideo.jp/watch/sm0000000 <size[!]|formatid|max|list> [post] [account]
 
 Application Options:
-  -u, --url=             Fediverse instance URL
-  -l, --login=           Fediverse instance login
-      --dir=             Download directory
-      --youtube-dl-path= Set youtube-dl path
-      --listen=          Listen for authorization code
-  -q, --quiet            Suppress extra output
-      --default          Set specifid url/login/args as default
+  -f, --fediverse=  Fediverse instance URL
+  -l, --login=      Fediverse instance login
+  -d, --dir=        Download directory
+  -o, --output=     Output file
+  -c, --config=     Config file location
+  -j, --cookie-jar= Cookie jar file
+      --listen=     Listen for authorization code
+  -u, --username=   Nicovideo username
+  -p, --password=   Nicovideo password
+  -q, --quiet       Suppress extra output
+      --default     Set specifid url/login/args as default
 
 Help Options:
   -h, --help             Show this help message
 
 Available commands:
   account
+  
+[account command options]
+          --code=   OAuth2 code
 ```
 
 - To add an account 
   - Using localhost HTTP server
     ```sh
-    ./jaroidfedi account -u your.instance.domain -l yourlogin --listen
+    ./jaroidfedi account -f your.instance.domain -l yourlogin --listen
     ```
     this will start local HTTP server on random port.
     To choose a specific port or host, you can use e.g. `--listen=:8080`
   - To add an account manually
     ```sh
-    ./jaroidfedi account -u your.instance.domain -l yourlogin
+    ./jaroidfedi account -f your.instance.domain -l yourlogin
     ```
   
   Either way, URL should be printed, which may look like
@@ -55,12 +61,12 @@ Available commands:
   
     FE should display a token, which then can be passed to cli as
     ```sh
-    ./jaroidfedi account -u your.instance.domain -l yourlogin -c yourcode
+    ./jaroidfedi account -f your.instance.domain -l yourlogin --code yourcode
     ```
   You only need to this once, for one account, unless you revoke this token (it should display as `jaroid`) in your account security options.
 - To change default instace/account
   ```sh
-  ./jaroidfedi -u your.instance.domain -l yourlogin --default
+  ./jaroidfedi -f your.instance.domain -l yourlogin --default
   ```
 - You can list available formats with
   ```sh
@@ -82,21 +88,13 @@ Available commands:
   ```sh
   ./jaroidfedi https://www.nicovideo.jp/watch/sm0000000 max
   ```
-- To download also a danmaku subitles, add 'sub'
-  ```sh
-  ./jaroidfedi https://www.nicovideo.jp/watch/sm0000000 <size[!]|formatid|max> sub
-  ```
-- To select danmaku subitles language 'sub:<en|jp|cn>'
-  ```sh
-  ./jaroidfedi https://www.nicovideo.jp/watch/sm0000000 <size[!]|formatid|max> sub:jp
-  ```
 - To post a video, add 'post'
   ```sh
   ./jaroidfedi https://www.nicovideo.jp/watch/sm0000000 <size[!]|formatid|max> post
   ```
 - To pass extra options to youtube-dl
   ```sh
-  ./jaroidfedi https://www.nicovideo.jp/watch/sm0000000 -- -u nicovideologin -p nicovideopassword
+  ./jaroidfedi https://www.nicovideo.jp/watch/sm0000000 -u nicovideologin -p nicovideopassword
   ```
 
 Config 
@@ -148,15 +146,12 @@ global:
   user_agent: jaroid
   default_instance: your.instance.domain
 mediaservice:
-  default: youtube-dl
-  youtube_dl:
-    executable_path: youtube-dl
-    save_dir: /tmp/jaroid
-    common_args:
-      - -u
-      - yournicologin@email.com
-      - -p
-      - yournicopassword
+  save_dir: /tmp/jaroid
+  cookie_jar: /home/user/.config/jaroid/cookie.jar
+  keep_files: false
+  auth:
+    username: 
+    password:
 ```
 
 Template

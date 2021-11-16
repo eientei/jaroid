@@ -148,6 +148,7 @@ type Downloader interface {
 	SaveFormat(
 		ctx context.Context,
 		url, formatID, outpath string,
+		reuse bool,
 		opts *SaveOptions,
 	) (string, error)
 }

@@ -31,7 +31,7 @@ type Fedipost struct {
 }
 
 // New returns new fedipost app with given config path
-func New(configpath string) (*Fedipost, error) {
+func New(configpath string, overrides func(fp *Fedipost)) (*Fedipost, error) {
 	if configpath == "" {
 		homedir, err := os.UserHomeDir()
 		if err != nil {
@@ -46,7 +46,7 @@ func New(configpath string) (*Fedipost, error) {
 		Config:         &config.Root{},
 	}
 
-	err := f.Reload()
+	err := f.Reload(overrides)
 	if err != nil {
 		return nil, err
 	}
@@ -55,7 +55,7 @@ func New(configpath string) (*Fedipost, error) {
 }
 
 // Reload fedipost from config
-func (f *Fedipost) Reload() error {
+func (f *Fedipost) Reload(overrides func(fp *Fedipost)) error {
 	err := f.Config.LoadFile(f.ConfigLocation)
 	if errors.Is(err, os.ErrNotExist) {
 		err = nil
@@ -66,6 +66,13 @@ func (f *Fedipost) Reload() error {
 	}
 
 	err = f.Save()
+	if err != nil {
+		return err
+	}
+
+	overrides(f)
+
+	err = os.MkdirAll(filepath.Dir(f.Config.Mediaservice.CookieJar), 0777)
 	if err != nil {
 		return err
 	}

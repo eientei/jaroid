@@ -234,7 +234,7 @@ func (mod *module) downloadVideo(ctx context.Context, id string, task *TaskDownl
 		}
 	}()
 
-	fmtname, err = mod.config.Nicovideo.SaveFormat(ctx, task.VideoURL, task.Format, output, opts)
+	fmtname, err = mod.config.Nicovideo.SaveFormat(ctx, task.VideoURL, task.Format, output, true, opts)
 	if err != nil {
 		opts.Reporter.Submit("ERROR: "+err.Error(), true)
 

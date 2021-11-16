@@ -19,12 +19,18 @@ import (
 )
 
 var opts struct {
-	URL      *string `short:"u" long:"url" description:"Fediverse instance URL"`
-	Login    *string `short:"l" long:"login" description:"Fediverse instance login"`
-	Dir      *string `long:"dir" description:"Download directory"`
-	Listen   *string `long:"listen" description:"Listen for authorization code" optional:"true" optional-value:":0"`
-	Acccount struct {
-		Code string `short:"c" long:"code" description:"OAuth2 code"`
+	URL       *string `short:"f" long:"fediverse" description:"Fediverse instance URL"`
+	Login     *string `short:"l" long:"login" description:"Fediverse instance login"`
+	Dir       *string `short:"d" long:"dir" description:"Download directory (.)"`
+	Output    *string `short:"o" long:"output" description:"Output file"`
+	Config    *string `short:"c" long:"config" description:"Config file location (~/.config/jaroid/fedipost.yml)"`
+	CookieJar *string `short:"j" long:"cookie-jar" description:"Cookie jar file (~/.config/jaroid/cookie.jar)"`
+	Listen    *string `long:"listen" optional:"true" optional-value:":0" description:"Listen for authorization code"`
+
+	NicovideoUsername *string `short:"u" long:"username" description:"Nicovideo username"`
+	NicovideoPassword *string `short:"p" long:"password" description:"Nicovideo password"`
+	Acccount          struct {
+		Code string `long:"code" description:"OAuth2 code"`
 	} `command:"account"`
 	Quiet   bool `short:"q" long:"quiet" description:"Suppress extra output"`
 	Default bool `long:"default" description:"Set specifid url/login/args as default"`
@@ -103,7 +109,7 @@ func parseConfig() (c binconfig) {
 
 	p := flags.NewParser(&opts, flags.Default)
 	p.SubcommandsOptional = true
-	p.Usage = "https://www.nicovideo.jp/watch/sm0000000 <size[!]|formatid|max|list> [sub[:<jp|en|cn>]] [post]"
+	p.Usage = "https://www.nicovideo.jp/watch/sm0000000 <size[!]|formatid|max|list> [post]"
 
 	rest, err := p.ParseArgs(preargs)
 
@@ -135,9 +141,9 @@ func parseConfig() (c binconfig) {
 		if t.Type == flags.ErrHelp {
 			_, _ = fmt.Printf(
 				"To add an account\n"+
-					"%s account -u your.instance.domain -l yourlogin [--listen]\n\n"+
+					"%s account -f your.instance.domain -l yourlogin [--listen]\n\n"+
 					"To change default instace/account\n"+
-					"%s -u your.instance.domain -l yourlogin --default\n\n"+
+					"%s -f your.instance.domain -l yourlogin --default\n\n"+
 					"You can list available formats with\n"+
 					"%s https://www.nicovideo.jp/watch/sm0000000 list\n\n"+
 					"To download a video with selected format use\n"+
@@ -148,16 +154,10 @@ func parseConfig() (c binconfig) {
 					"%s https://www.nicovideo.jp/watch/sm0000000 50m!\n\n"+
 					"Alternatively preselect a maximum available format\n"+
 					"%s https://www.nicovideo.jp/watch/sm0000000 max\n\n"+
-					"To download also a danmaku subitles, add 'sub'\n"+
-					"%s https://www.nicovideo.jp/watch/sm0000000 <size[!]|formatid|max> sub\n\n"+
-					"To select danmaku subitles language 'sub:<en|jp|cn>'\n"+
-					"%s https://www.nicovideo.jp/watch/sm0000000 <size[!]|formatid|max> sub:jp\n\n"+
 					"To post a video, add 'post'\n"+
 					"%s https://www.nicovideo.jp/watch/sm0000000 <size[!]|formatid|max> post\n\n"+
-					"To pass extra options to youtube-dl\n"+
-					"%s https://www.nicovideo.jp/watch/sm0000000 -- -u nicovideologin -p nicovideopassword\n\n",
-				os.Args[0],
-				os.Args[0],
+					"To provide authentication for nicoideo\n"+
+					"%s https://www.nicovideo.jp/watch/sm0000000 -u nicovideologin -p nicovideopassword\n\n",
 				os.Args[0],
 				os.Args[0],
 				os.Args[0],
@@ -258,7 +258,7 @@ func startLocalHTTP(addr string) (string, chan *resp, error) {
 
 func handleAccount(ctx context.Context, c *binconfig, fedipost *app.Fedipost) {
 	if c.uri == "" || c.login == "" {
-		fmt.Println("both -u your.instance.domain and -l yourlogin are requied")
+		fmt.Println("both -f your.instance.domain and -l yourlogin are requied")
 
 		os.Exit(1)
 	}
@@ -274,7 +274,7 @@ func handleAccount(ctx context.Context, c *binconfig, fedipost *app.Fedipost) {
 
 		if c.redirect == "" {
 			fmt.Printf("\nthen use received authorization code as\n\n")
-			fmt.Printf("%s account -u %s -l %s -c yourcode\n", os.Args[0], c.uri, c.login)
+			fmt.Printf("%s account -f %s -l %s --code yourcode\n", os.Args[0], c.uri, c.login)
 			os.Exit(0)
 		}
 	}
@@ -357,10 +357,34 @@ func startReporter() mediaservice.Reporter {
 	return reporter
 }
 
+func overrides(f *app.Fedipost) {
+	if opts.CookieJar != nil {
+		f.Config.Mediaservice.CookieJar = *opts.CookieJar
+	}
+
+	if opts.NicovideoUsername != nil {
+		f.Config.Mediaservice.Auth.Username = *opts.NicovideoUsername
+	}
+
+	if opts.NicovideoPassword != nil {
+		f.Config.Mediaservice.Auth.Password = *opts.NicovideoPassword
+	}
+
+	if opts.Dir != nil {
+		f.Config.Mediaservice.SaveDir = *opts.Dir
+	}
+}
+
 func main() {
 	c := parseConfig()
 
-	fedipost, err := app.New("")
+	var configpath string
+
+	if opts.Config != nil {
+		configpath = *opts.Config
+	}
+
+	fedipost, err := app.New(configpath, overrides)
 	if err != nil {
 		panic(err)
 	}
@@ -407,21 +431,36 @@ func handleDownload(
 ) string {
 	fid := nicopost.FormatFileID(path.Base(c.videourl), c.format)
 
-	match, err := nicopost.GlobFind(mediaservicecopy.SaveDir, fid)
-	if err != nil {
-		panic(err)
+	var match string
+
+	var err error
+
+	if mediaservicecopy.SaveDir != "" {
+		match, err = nicopost.GlobFind(mediaservicecopy.SaveDir, fid)
+		if err != nil {
+			panic(err)
+		}
 	}
 
-	if match != "" {
+	if match != "" && opts.Output == nil {
 		return match
 	}
 
-	err = os.MkdirAll(mediaservicecopy.SaveDir, 0777)
-	if err != nil {
-		panic(err)
+	savedir := mediaservicecopy.SaveDir
+
+	if savedir == "" {
+		savedir, err = os.Getwd()
+		if err != nil {
+			panic(err)
+		}
+	} else {
+		err = os.MkdirAll(mediaservicecopy.SaveDir, 0777)
+		if err != nil {
+			panic(err)
+		}
 	}
 
-	match = nicopost.SaveFilepath(mediaservicecopy.SaveDir, c.videourl, c.format)
+	match = nicopost.SaveFilepath(savedir, c.videourl, c.format)
 
 	reporter := mediaservice.NewDummyReporter()
 
@@ -446,7 +485,14 @@ func handleDownload(
 		downopts.Subtitles = append(downopts.Subtitles, c.subs)
 	}
 
-	match, err = downloader.SaveFormat(ctx, c.videourl, c.format, match, downopts)
+	reuse := true
+
+	if opts.Output != nil {
+		match = *opts.Output
+		reuse = false
+	}
+
+	match, err = downloader.SaveFormat(ctx, c.videourl, c.format, match, reuse, downopts)
 	if err != nil {
 		panic(err)
 	}

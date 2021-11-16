@@ -80,7 +80,11 @@ type Client struct {
 	Config
 }
 
-func (client *Client) openCopyFile(f *os.File, outpath, fmtname string) error {
+func (client *Client) openCopyFile(f *os.File, outpath, fmtname string, reuse bool) error {
+	if !reuse {
+		return nil
+	}
+
 	parts := strings.SplitN(filepath.Base(outpath), "-", 2)
 
 	matches, err := filepath.Glob(filepath.Join(filepath.Dir(outpath), parts[0]+"-*-"+fmtname+"*"))
