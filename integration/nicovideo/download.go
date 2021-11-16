@@ -793,6 +793,8 @@ func (client *Client) SaveFormat(
 	}
 
 	if cl == finfo.Size() {
+		_ = f.Close()
+
 		err = os.Rename(outpath+".part", outpath)
 		if err != nil {
 			return "", err
@@ -807,6 +809,8 @@ func (client *Client) SaveFormat(
 	if err != nil {
 		return "", err
 	}
+
+	_ = f.Close()
 
 	err = os.Rename(outpath+".part", outpath)
 	if err != nil {
