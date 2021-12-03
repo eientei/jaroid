@@ -258,7 +258,7 @@ func (mod *module) executeFeed(ctx context.Context, feed *feed) error {
 
 		feed.Last = r.StartTime
 
-		time.Sleep(time.Minute * 5)
+		time.Sleep(time.Second * 30)
 	}
 
 	if feed.Last.IsZero() {
@@ -289,7 +289,7 @@ func (mod *module) commandDownload(ctx *router.Context) error {
 	case "www.nicovideo.jp", "nicovideo.jp":
 		var m bool
 
-		if m, err = regexp.MatchString("^.*/sm[0-9]*$", urlraw); err != nil || !m {
+		if m, err = regexp.MatchString("^.*/[sn]m[0-9]*$", urlraw); err != nil || !m {
 			return ErrInvalidURL
 		}
 	default:
@@ -423,8 +423,13 @@ func (mod *module) renderSelection(session *discordgo.Session, msg *discordgo.Me
 		return
 	}
 
-	postedidx := strings.Index(lines[n+1], " ")
-	posted := lines[n+1][:postedidx]
+	posted := lines[n+1]
+
+	postedidx := strings.Index(posted, " ")
+	if postedidx >= 0 {
+		posted = posted[:postedidx]
+	}
+
 	tags := lines[n+2]
 
 	sb := &strings.Builder{}
