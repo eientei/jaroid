@@ -576,12 +576,25 @@ func (client *Client) createSession(
 	return
 }
 
+func (client *Client) keepaliveError(reporter mediaservice.Reporter, err *error) {
+	if err == nil || *err == nil || reporter == nil {
+		return
+	}
+
+	reporter.Submit("keepalive error: "+(*err).Error(), true)
+}
+
 func (client *Client) keepalive(
 	ctx context.Context,
+	reporter mediaservice.Reporter,
 	session *APIDataMovieSession,
 	sess *SessionResponse,
 	sessdata *SessionResponseData,
 ) {
+	var err error
+
+	defer client.keepaliveError(reporter, &err)
+
 	t := time.NewTicker(time.Duration(session.HeartBeatLifetime/3000) * time.Second)
 
 	defer t.Stop()
@@ -602,6 +615,7 @@ func (client *Client) keepalive(
 			q := sessurl.Query()
 
 			q.Set("_method", "PUT")
+			q.Set("_format", "json")
 
 			sessurl.RawQuery = q.Encode()
 
@@ -614,7 +628,7 @@ func (client *Client) keepalive(
 				return
 			}
 
-			err = json.Unmarshal(bs, &sess)
+			err = json.Unmarshal(bs, sess)
 			if err != nil {
 				return
 			}
@@ -623,7 +637,7 @@ func (client *Client) keepalive(
 				return
 			}
 
-			err = json.Unmarshal(sess.Data, &sessdata)
+			err = json.Unmarshal(sess.Data, sessdata)
 			if err != nil {
 				return
 			}
@@ -740,8 +754,6 @@ func (client *Client) SaveFormat(
 
 	defer cancel()
 
-	contentURL := sessdata.Session.ContentURI
-
 	fmtname := strings.TrimPrefix(vformatid, "archive_") + "-" + strings.TrimPrefix(aformatid, "archive_")
 
 	outpath = strings.ReplaceAll(outpath, "${fmt}", fmtname)
@@ -781,7 +793,7 @@ func (client *Client) SaveFormat(
 		return "", err
 	}
 
-	resp, err := client.methodPage(ctx, contentURL, http.MethodGet, nil, http.Header{
+	resp, err := client.methodPage(ctx, sessdata.Session.ContentURI, http.MethodGet, nil, http.Header{
 		"range": []string{fmt.Sprintf("bytes=%d-", finfo.Size())},
 	})
 	if err != nil {
@@ -797,7 +809,7 @@ func (client *Client) SaveFormat(
 		return "", err
 	}
 
-	go client.keepalive(cctx, &session, &sess, &sessdata)
+	go client.keepalive(cctx, reporter, &session, &sess, &sessdata)
 
 	if cl == finfo.Size() {
 		return outpath, nil
