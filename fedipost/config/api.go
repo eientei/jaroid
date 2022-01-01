@@ -27,10 +27,10 @@ var DefaultScopes = []string{"write:statuses", "write:media"}
 
 // DefaultTemplate is a default post template. See search.ThumbItem for .info fields
 const DefaultTemplate = `**{{.info.Title}}**
-{{.url}}
 {{- if .info.Tags.jp }}
 {{ .info.Tags.jp | makeTags | join " " }}
 {{- end }}
+{{.url}}
 `
 
 // DefaultUseragent for config
