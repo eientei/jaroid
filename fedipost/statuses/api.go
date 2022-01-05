@@ -21,6 +21,7 @@ type CreateStatus struct {
 
 // CreatedStatus represents created status
 type CreatedStatus struct {
+	Body  string `json:"-"`
 	ID    string `json:"id"`
 	URL   string `json:"url"`
 	Error string `json:"error"`

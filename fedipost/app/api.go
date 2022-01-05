@@ -217,15 +217,25 @@ func (f *Fedipost) ExchangeAuthorizeCode(ctx context.Context, instance, login, r
 func (f *Fedipost) MakeStatus(
 	ctx context.Context,
 	uri, login, videouri, videopath string,
+	preview bool,
 ) (*statuses.CreatedStatus, error) {
 	conf, tmpl, err := f.login(ctx, uri, login, "")
 	if err != nil {
 		return nil, err
 	}
 
-	status, err := nicopost.MakeNicovideoStatus(ctx, conf, f.Client, videouri, videopath, tmpl)
+	status, err := nicopost.MakeNicovideoStatus(ctx, conf, f.Client, videouri, videopath, tmpl, preview)
 	if err != nil {
 		return nil, err
+	}
+
+	if preview {
+		return &statuses.CreatedStatus{
+			Body:  status.Status,
+			ID:    "",
+			URL:   "",
+			Error: "",
+		}, nil
 	}
 
 	return statuses.Create(conf, status)

@@ -51,6 +51,7 @@ type binconfig struct {
 	subs       string
 	redirect   string
 	post       bool
+	preview    bool
 	list       bool
 }
 
@@ -62,6 +63,9 @@ func parseRest(p *flags.Parser, rest []string, c *binconfig) error {
 			c.list = true
 		case a == "post":
 			c.post = true
+		case a == "preview":
+			c.post = true
+			c.preview = true
 		case strings.HasPrefix(a, "sub"):
 			c.subs = a
 		case c.videourl == "":
@@ -405,7 +409,13 @@ func main() {
 		handleList(ctx, c, fedipost.Client)
 	}
 
-	match := handleDownload(ctx, c, &mediaservicecopy, fedipost.Client)
+	var match string
+
+	if c.preview {
+		match = "path/to/file.mp4"
+	} else {
+		match = handleDownload(ctx, c, &mediaservicecopy, fedipost.Client)
+	}
 
 	if !opts.Quiet {
 		_, _ = fmt.Fprintln(os.Stderr, "Downloaded", c.format, "to", match)
@@ -414,12 +424,16 @@ func main() {
 	if c.post {
 		var status *statuses.CreatedStatus
 
-		status, err = fedipost.MakeStatus(ctx, c.uri, c.login, c.videourl, match)
+		status, err = fedipost.MakeStatus(ctx, c.uri, c.login, c.videourl, match, c.preview)
 		if err != nil {
 			panic(err)
 		}
 
-		fmt.Println(status.URL)
+		if c.preview {
+			fmt.Println(status.Body)
+		} else {
+			fmt.Println(status.URL)
+		}
 	}
 }
 

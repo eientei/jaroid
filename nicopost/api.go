@@ -27,6 +27,7 @@ func MakeNicovideoStatus(
 	conf *fedipost.Config,
 	client *nicovideo.Client,
 	videoURL, videoPath, tmpl string,
+	preview bool,
 ) (*statuses.CreateStatus, error) {
 	if tmpl == "" {
 		tmpl = config.DefaultTemplate
@@ -70,9 +71,13 @@ func MakeNicovideoStatus(
 		return nil, err
 	}
 
-	mediaID, err := media.UploadFile(conf, videoPath)
-	if err != nil {
-		return nil, err
+	var mediaID string
+
+	if !preview {
+		mediaID, err = media.UploadFile(conf, videoPath)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return &statuses.CreateStatus{

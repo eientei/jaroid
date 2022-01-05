@@ -72,7 +72,7 @@ func (mod *module) pleromaPost(ctx context.Context, task *TaskPleromaPost) error
 		OauthAuthorizeEndpoint: task.PleromaHost + "/oauth/authorize",
 	}
 
-	status, err := nicopost.MakeNicovideoStatus(ctx, config, mod.config.Nicovideo, task.VideoURL, task.FilePath, "")
+	status, err := nicopost.MakeNicovideoStatus(ctx, config, mod.config.Nicovideo, task.VideoURL, task.FilePath, "", false)
 	if err != nil {
 		return err
 	}
