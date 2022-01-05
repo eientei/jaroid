@@ -29,6 +29,7 @@ type TaskDownload struct {
 	UserID    string `json:"user_id"`
 	Subs      string `json:"subs"`
 	Post      bool   `json:"post"`
+	Preview   bool   `json:"preview"`
 }
 
 // Scope returns task scope
@@ -89,6 +90,7 @@ type TaskPleromaPost struct {
 	FilePath    string `json:"file_path"`
 	PleromaHost string `json:"pleroma_host"`
 	PleromaAuth string `json:"pleroma_auth"`
+	Preview     bool   `json:"preview"`
 }
 
 // Scope returns task scope
@@ -151,7 +153,11 @@ func (mod *module) downloadSend(task *TaskDownload, fpath string) {
 		}
 	}
 
-	_, err := mod.config.Discord.ChannelMessageEdit(task.ChannelID, task.MessageID, sb.String())
+	var err error
+
+	if !task.Preview {
+		_, err = mod.config.Discord.ChannelMessageEdit(task.ChannelID, task.MessageID, sb.String())
+	}
 
 	if err != nil {
 		mod.config.Log.WithError(err).Error("Editing message", task.GuildID, task.ChannelID, task.MessageID)

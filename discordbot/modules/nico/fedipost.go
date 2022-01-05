@@ -2,6 +2,7 @@ package nico
 
 import (
 	"context"
+	"path/filepath"
 	"time"
 
 	"github.com/eientei/jaroid/fedipost"
@@ -25,6 +26,7 @@ func (mod *module) pleromaPostEnqueue(task *TaskDownload, fpath string) {
 		PleromaHost: s.pleromaHost,
 		PleromaAuth: s.pleromaAuth,
 		FilePath:    fpath,
+		Preview:     task.Preview,
 	}, 0, 0)
 	if err != nil {
 		mod.config.Log.WithError(err).Error("Scheduling pleroma post", task.GuildID, task.ChannelID, task.MessageID)
@@ -72,12 +74,27 @@ func (mod *module) pleromaPost(ctx context.Context, task *TaskPleromaPost) error
 		OauthAuthorizeEndpoint: task.PleromaHost + "/oauth/authorize",
 	}
 
-	status, err := nicopost.MakeNicovideoStatus(ctx, config, mod.config.Nicovideo, task.VideoURL, task.FilePath, "", false)
+	status, err := nicopost.MakeNicovideoStatus(
+		ctx,
+		config,
+		mod.config.Nicovideo,
+		task.VideoURL,
+		task.FilePath,
+		"",
+		task.Preview,
+	)
 	if err != nil {
 		return err
 	}
 
-	_, err = statuses.Create(config, status)
+	if task.Preview {
+		base := filepath.Base(task.FilePath)
+		uri := mod.config.Config.Private.Nicovideo.Public + "/" + base
+
+		mod.updateMessage(task.GuildID, task.ChannelID, task.MessageID, "```"+status.Status+"```\n"+uri)
+	} else {
+		_, err = statuses.Create(config, status)
+	}
 
 	return err
 }

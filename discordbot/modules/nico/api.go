@@ -301,7 +301,7 @@ func (mod *module) commandDownload(ctx *router.Context) error {
 		return err
 	}
 
-	format, subs, post := mod.parseNicoDownloadArgs(ctx)
+	format, subs, post, preview := mod.parseNicoDownloadArgs(ctx)
 
 	if format == "list" {
 		_, err = mod.config.Repository.TaskEnqueue(&TaskList{
@@ -325,6 +325,7 @@ func (mod *module) commandDownload(ctx *router.Context) error {
 		Format:    format,
 		UserID:    ctx.Message.Author.ID,
 		Post:      post,
+		Preview:   preview,
 		Subs:      subs,
 	}, 0, 0)
 
@@ -335,16 +336,17 @@ func (mod *module) commandDownload(ctx *router.Context) error {
 	return err
 }
 
-func (mod *module) parseNicoDownloadArgs(ctx *router.Context) (format, subs string, post bool) {
+func (mod *module) parseNicoDownloadArgs(ctx *router.Context) (format, subs string, post, preview bool) {
 	for i := 2; i < len(ctx.Args); i++ {
 		switch {
-		case ctx.Args[i] == "post" && mod.config.HasPermission(
+		case (ctx.Args[i] == "post" || ctx.Args[i] == "preview") && mod.config.HasPermission(
 			ctx.Message,
 			discordgo.PermissionAdministrator,
 			nil,
 			nil,
 		):
 			post = true
+			preview = ctx.Args[i] == "preview"
 		case strings.HasPrefix(ctx.Args[i], "sub"):
 			subs = strings.TrimPrefix(ctx.Args[i], "sub")
 			subs = strings.TrimPrefix(subs, ":")
