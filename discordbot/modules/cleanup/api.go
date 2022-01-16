@@ -61,7 +61,7 @@ func (mod *module) middlewareCleanup(handler router.HandlerFunc) router.HandlerF
 
 		for k, r := range ctx.Route.Replies {
 			if mod.cleanupDelay[ctx.Message.GuildID] > 0 {
-				_, err := mod.config.Repository.TaskEnqueue(&Task{
+				_, _, err := mod.config.Repository.TaskEnqueue(&Task{
 					GuildID:   r.Response.GuildID,
 					ChannelID: r.Response.ChannelID,
 					MessageID: r.Response.ID,

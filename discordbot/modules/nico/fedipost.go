@@ -18,7 +18,7 @@ func (mod *module) pleromaPostEnqueue(task *TaskDownload, fpath string) {
 		return
 	}
 
-	_, err := mod.config.Repository.TaskEnqueue(&TaskPleromaPost{
+	_, _, err := mod.config.Repository.TaskEnqueue(&TaskPleromaPost{
 		GuildID:     task.GuildID,
 		ChannelID:   task.ChannelID,
 		MessageID:   task.MessageID,

@@ -37,15 +37,29 @@ func (repo *Repository) ConfigGet(guildID, scope, key string) (s string, err err
 }
 
 // TaskEnqueue schedules task for execution
-func (repo *Repository) TaskEnqueue(task Task, delay, timeout time.Duration) (string, error) {
+func (repo *Repository) TaskEnqueue(task Task, delay, timeout time.Duration) (id string, pending int64, err error) {
 	fkey := fmt.Sprintf("task.%s.%s", task.Scope(), task.Name())
+
+
+	gs, err := repo.Client.XInfoGroups(fkey).Result()
+	if err != nil {
+		return "", 0, err
+	}
+
+	for _, g := range gs {
+		if g.Name == "tasks" {
+			pending = g.Pending
+
+			break
+		}
+	}
 
 	bs, err := json.Marshal(task)
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 
-	return repo.Client.XAdd(&redis.XAddArgs{
+	id, err = repo.Client.XAdd(&redis.XAddArgs{
 		Stream: fkey,
 		Values: map[string]interface{}{
 			"created": time.Now().Unix(),
@@ -54,6 +68,11 @@ func (repo *Repository) TaskEnqueue(task Task, delay, timeout time.Duration) (st
 			"data":    bs,
 		},
 	}).Result()
+	if err != nil {
+		return "", 0, err
+	}
+
+	return
 }
 
 func (repo *Repository) processMessage(

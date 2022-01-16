@@ -304,7 +304,7 @@ func (mod *module) commandDownload(ctx *router.Context) error {
 	format, subs, post, preview := mod.parseNicoDownloadArgs(ctx)
 
 	if format == "list" {
-		_, err = mod.config.Repository.TaskEnqueue(&TaskList{
+		_, _, err = mod.config.Repository.TaskEnqueue(&TaskList{
 			GuildID:   ctx.Message.GuildID,
 			ChannelID: msg.ChannelID,
 			MessageID: msg.ID,
@@ -315,9 +315,7 @@ func (mod *module) commandDownload(ctx *router.Context) error {
 		return err
 	}
 
-	var id string
-
-	id, err = mod.config.Repository.TaskEnqueue(&TaskDownload{
+	id, q, err := mod.config.Repository.TaskEnqueue(&TaskDownload{
 		GuildID:   ctx.Message.GuildID,
 		ChannelID: msg.ChannelID,
 		MessageID: msg.ID,
@@ -329,11 +327,20 @@ func (mod *module) commandDownload(ctx *router.Context) error {
 		Subs:      subs,
 	}, 0, 0)
 
-	mod.updateMessage(msg.GuildID, msg.ChannelID, msg.ID, id+" "+msg.Content)
+	mod.updateMessage(msg.GuildID, msg.ChannelID, msg.ID, queuedMessage(id, msg.Content, q))
 
 	_ = mod.config.Discord.MessageReactionAdd(msg.ChannelID, msg.ID, emojiStop)
 
 	return err
+}
+
+func queuedMessage(id, content string, pos int64) string {
+	if pos > 0 {
+		return fmt.Sprintf("%s queued at position %d", id, pos)
+	} else {
+		return fmt.Sprintf("%s %s", id, content)
+	}
+
 }
 
 func (mod *module) parseNicoDownloadArgs(ctx *router.Context) (format, subs string, post, preview bool) {
@@ -543,9 +550,7 @@ func (mod *module) handlerReactionAddDownload(
 		return
 	}
 
-	var id string
-
-	id, _ = mod.config.Repository.TaskEnqueue(&TaskDownload{
+	id, q, _ := mod.config.Repository.TaskEnqueue(&TaskDownload{
 		GuildID:   msg.GuildID,
 		ChannelID: msg.ChannelID,
 		MessageID: msg.ID,
@@ -554,7 +559,7 @@ func (mod *module) handlerReactionAddDownload(
 		UserID:    messageReactionAdd.UserID,
 	}, 0, 0)
 
-	mod.updateMessage(msg.GuildID, msg.ChannelID, msg.ID, id+" "+msg.Content)
+	mod.updateMessage(msg.GuildID, msg.ChannelID, msg.ID, queuedMessage(id, msg.Content, q))
 
 	_ = mod.config.Discord.MessageReactionAdd(msg.ChannelID, msg.ID, emojiStop)
 }

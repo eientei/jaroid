@@ -137,7 +137,7 @@ func (mod *module) downloadSend(task *TaskDownload, fpath string) {
 	if task.Subs != "" {
 		sb.WriteString("\ndanmaku subtitles: " + subtitleFilename(uri, task.Subs))
 
-		_, err := mod.config.Repository.TaskEnqueue(&TaskCleanup{
+		_, _, err := mod.config.Repository.TaskEnqueue(&TaskCleanup{
 			GuildID:   task.GuildID,
 			ChannelID: task.ChannelID,
 			MessageID: task.MessageID,
@@ -163,7 +163,7 @@ func (mod *module) downloadSend(task *TaskDownload, fpath string) {
 		mod.config.Log.WithError(err).Error("Editing message", task.GuildID, task.ChannelID, task.MessageID)
 	}
 
-	_, err = mod.config.Repository.TaskEnqueue(&TaskCleanup{
+	_, _, err = mod.config.Repository.TaskEnqueue(&TaskCleanup{
 		GuildID:   task.GuildID,
 		ChannelID: task.ChannelID,
 		MessageID: task.MessageID,
