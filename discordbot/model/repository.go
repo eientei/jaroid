@@ -40,19 +40,12 @@ func (repo *Repository) ConfigGet(guildID, scope, key string) (s string, err err
 func (repo *Repository) TaskEnqueue(task Task, delay, timeout time.Duration) (id string, pending int64, err error) {
 	fkey := fmt.Sprintf("task.%s.%s", task.Scope(), task.Name())
 
-
-	gs, err := repo.Client.XInfoGroups(fkey).Result()
+	gs, err := repo.Client.XRange(fkey, "-", "+").Result()
 	if err != nil {
 		return "", 0, err
 	}
 
-	for _, g := range gs {
-		if g.Name == "tasks" {
-			pending = g.Pending
-
-			break
-		}
-	}
+	pending = int64(len(gs))
 
 	bs, err := json.Marshal(task)
 	if err != nil {
