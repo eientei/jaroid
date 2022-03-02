@@ -1,6 +1,7 @@
 package nicovideo
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -22,6 +23,7 @@ import (
 
 var (
 	dataAPIDataRegex = regexp.MustCompile(`data-api-data="([^"]+)"`)
+	otpRegexp        = regexp.MustCompile(`action="(/mfa[^"]*)"`)
 )
 
 // BoolYesNo formats boolean as "yes" and "no" strings during json un/marshalling
@@ -340,7 +342,7 @@ func (client *Client) fetchInitPage(ctx context.Context, url string, reporter me
 		if succ {
 			bs, err = client.getPage(ctx, url)
 			if err != nil {
-				return nil, err
+				bs = nil
 			}
 		}
 	}
@@ -377,7 +379,88 @@ func (client *Client) auth(reporter mediaservice.Reporter) (bool, error) {
 		return false, fmt.Errorf("invalid credentials")
 	}
 
+	bs, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return false, err
+	}
+
+	if strings.Contains(string(bs), `name="otp"`) {
+		return client.otpAction(string(bs), reporter)
+	}
+
 	return succ, nil
+}
+
+func (client *Client) otpAction(s string, reporter mediaservice.Reporter) (bool, error) {
+	if !reporter.CanRead() {
+		return false, nil
+	}
+
+	matches := otpRegexp.FindAllStringSubmatch(s, -1)
+
+	if len(matches) == 0 {
+		return false, nil
+	}
+
+	u, err := url.Parse(client.LoginURI)
+	if err != nil {
+		return false, nil
+	}
+
+	reporter.Submit("Nicovideo has requested one-time password to perform login.", true)
+	reporter.Submit("Please check your EMail and input 6-digit code on next line:", true)
+
+	var otp string
+
+	for {
+		otp, err = bufio.NewReader(os.Stdin).ReadString('\n')
+		if err != nil {
+			return false, err
+		}
+
+		otp = strings.TrimSpace(otp)
+
+		if len(otp) == 0 {
+			return false, nil
+		}
+
+		if len(otp) == 6 {
+			if _, err = strconv.ParseInt(otp, 10, 64); err == nil {
+				break
+			}
+		}
+
+		fmt.Println("Did not recognized input, enter 6-digit code or empty string to skip")
+	}
+
+	u.Path = ""
+	u.RawQuery = ""
+
+	targetURL := u.String() + matches[0][1]
+
+	resp, err := client.HTTPClient.PostForm(targetURL, url.Values{
+		"otp":                   []string{otp},
+		"loginBtn":              []string{"Login"},
+		"is_mfa_trusted_device": []string{"true"},
+		"device_name":           []string{"jaroid"},
+	})
+	if err != nil {
+		client.Auth.invalid = true
+
+		reporter.Submit("Invalid credentials", true)
+
+		return false, err
+	}
+
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	if resp.StatusCode/100 == 2 {
+		return true, nil
+	}
+
+	return false, nil
 }
 
 func (client *Client) fetchAPIData(ctx context.Context, url string, reporter mediaservice.Reporter) (*APIData, error) {

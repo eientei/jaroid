@@ -337,9 +337,9 @@ func (mod *module) commandDownload(ctx *router.Context) error {
 func queuedMessage(id, content string, pos int64) string {
 	if pos > 0 {
 		return fmt.Sprintf("%s queued at position %d", id, pos)
-	} else {
-		return fmt.Sprintf("%s %s", id, content)
 	}
+
+	return fmt.Sprintf("%s %s", id, content)
 }
 
 func (mod *module) parseNicoDownloadArgs(ctx *router.Context) (format, subs string, post, preview bool) {

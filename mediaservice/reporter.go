@@ -1,6 +1,8 @@
 package mediaservice
 
 import (
+	"bufio"
+	"io"
 	"sync"
 	"time"
 )
@@ -13,6 +15,8 @@ type Reporter interface {
 	Messages() <-chan string
 	Submit(msg string, force bool)
 	Close()
+	CanRead() bool
+	ReadLine() (string, error)
 }
 
 type dummyReporter struct {
@@ -30,17 +34,32 @@ func (*dummyReporter) Close() {
 
 }
 
+func (*dummyReporter) CanRead() bool {
+	return false
+}
+
+func (*dummyReporter) ReadLine() (string, error) {
+	return "", nil
+}
+
 // NewDummyReporter returns new dummy reporter implementation
 func NewDummyReporter() Reporter {
 	return &dummyReporter{}
 }
 
 // NewReporter returns new reporter instance with provided rate limit and buffer size for Messages() channel
-func NewReporter(rate time.Duration, buf int) Reporter {
+func NewReporter(rate time.Duration, buf int, reader io.Reader) Reporter {
+	var br *bufio.Reader
+
+	if reader != nil {
+		br = bufio.NewReader(reader)
+	}
+
 	rep := &reporterImpl{
 		m:        &sync.Mutex{},
 		messages: make(chan string, buf),
 		rate:     rate,
+		reader:   br,
 	}
 
 	return rep
@@ -48,6 +67,7 @@ func NewReporter(rate time.Duration, buf int) Reporter {
 
 type reporterImpl struct {
 	m        *sync.Mutex
+	reader   *bufio.Reader
 	messages chan string
 	rate     time.Duration
 	last     int64
@@ -103,4 +123,16 @@ func (r *reporterImpl) Submit(msg string, force bool) {
 	}
 
 	r.messages <- msg
+}
+
+func (r *reporterImpl) CanRead() bool {
+	return r.reader != nil
+}
+
+func (r *reporterImpl) ReadLine() (string, error) {
+	if !r.CanRead() {
+		return "", nil
+	}
+
+	return r.reader.ReadString('\n')
 }

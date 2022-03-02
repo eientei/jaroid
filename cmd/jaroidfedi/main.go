@@ -350,7 +350,7 @@ func handleDefault(c *binconfig, fedipost *app.Fedipost) {
 }
 
 func startReporter() mediaservice.Reporter {
-	reporter := mediaservice.NewReporter(0, 10)
+	reporter := mediaservice.NewReporter(0, 10, os.Stdin)
 
 	go func() {
 		for s := range reporter.Messages() {
