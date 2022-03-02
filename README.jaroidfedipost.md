@@ -6,7 +6,7 @@ USAGE
 
 ```
 Usage:
-  jaroidfedi https://www.nicovideo.jp/watch/sm0000000 <size[!]|formatid|max|list> [post] [account]
+  jaroidfedi https://www.nicovideo.jp/watch/sm0000000 <size[!]|formatid|max> [post|list|preview] [account]
 
 Application Options:
   -f, --fediverse=  Fediverse instance URL
@@ -95,6 +95,10 @@ Available commands:
 - To pass extra options to youtube-dl
   ```sh
   ./jaroidfedi https://www.nicovideo.jp/watch/sm0000000 -u nicovideologin -p nicovideopassword
+  ```
+- You can output fedi post markup to stdout without downloading and creating a post
+  ```sh
+  ./jaroidfedi https://www.nicovideo.jp/watch/sm0000000 preview
   ```
 
 Config 

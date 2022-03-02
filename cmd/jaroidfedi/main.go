@@ -445,15 +445,9 @@ func handleDownload(
 ) string {
 	fid := nicopost.FormatFileID(path.Base(c.videourl), c.format)
 
-	var match string
-
-	var err error
-
-	if mediaservicecopy.SaveDir != "" {
-		match, err = nicopost.GlobFind(mediaservicecopy.SaveDir, fid)
-		if err != nil {
-			panic(err)
-		}
+	match, err := nicopost.GlobFind(mediaservicecopy.SaveDir, fid)
+	if err != nil {
+		panic(err)
 	}
 
 	if match != "" && opts.Output == nil {
