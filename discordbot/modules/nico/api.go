@@ -340,7 +340,6 @@ func queuedMessage(id, content string, pos int64) string {
 	} else {
 		return fmt.Sprintf("%s %s", id, content)
 	}
-
 }
 
 func (mod *module) parseNicoDownloadArgs(ctx *router.Context) (format, subs string, post, preview bool) {

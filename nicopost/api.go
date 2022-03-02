@@ -82,7 +82,7 @@ func MakeNicovideoStatus(
 
 	return &statuses.CreateStatus{
 		Status:      buf.String(),
-		ContentType: "text/markdown",
+		ContentType: "text/html",
 		MediaIDs:    []string{mediaID},
 	}, nil
 }

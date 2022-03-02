@@ -26,7 +26,7 @@ const OAuth2OOBRedirectURI = "urn:ietf:wg:oauth:2.0:oob"
 var DefaultScopes = []string{"write:statuses", "write:media"}
 
 // DefaultTemplate is a default post template. See search.ThumbItem for .info fields
-const DefaultTemplate = `**{{.info.Title}}**
+const DefaultTemplate = `<b>{{.info.Title}}</b>
 {{- if .info.Tags.jp }}
 {{ .info.Tags.jp | makeTags | join " " }}
 {{- end }}
