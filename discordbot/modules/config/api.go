@@ -96,7 +96,14 @@ func (mod *module) configDel(ctx *router.Context) error {
 
 	key := ctx.Message.GuildID + "." + ctx.Args.Get(1)
 
-	return mod.config.Client.Del(key).Err()
+	err := mod.config.Client.Del(key).Err()
+	if err != nil {
+		return err
+	}
+
+	mod.config.Reload()
+
+	return nil
 }
 
 func (mod *module) configList(ctx *router.Context) error {
