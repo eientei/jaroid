@@ -35,21 +35,23 @@ type Pleroma struct {
 
 // Private part of configuration
 type Private struct {
-	Token     string    `yaml:"token"`
-	Admins    string    `yaml:"admins"`
-	Prefix    string    `yaml:"prefix"`
-	Data      string    `yaml:"data"`
-	Redis     Redis     `yaml:"redis"`
-	Nicovideo Nicovideo `yaml:"nicovideo"`
+	Token        string            `yaml:"token"`
+	Admins       string            `yaml:"admins"`
+	Prefix       string            `yaml:"prefix"`
+	ModulePrefix map[string]string `yaml:"module_prefix"`
+	Data         string            `yaml:"data"`
+	Redis        Redis             `yaml:"redis"`
+	Nicovideo    Nicovideo         `yaml:"nicovideo"`
 }
 
 // Server specific part of configuration
 type Server struct {
-	GuildID string   `yaml:"id"`
-	Prefix  string   `yaml:"prefix"`
-	LogDB   string   `yaml:"logdb"`
-	Pleroma Pleroma  `yaml:"pleroma"`
-	Admins  []string `yaml:"admins"`
+	GuildID      string            `yaml:"id"`
+	Prefix       string            `yaml:"prefix"`
+	ModulePrefix map[string]string `yaml:"module_prefix"`
+	LogDB        string            `yaml:"logdb"`
+	Pleroma      Pleroma           `yaml:"pleroma"`
+	Admins       []string          `yaml:"admins"`
 }
 
 // Root of configuration

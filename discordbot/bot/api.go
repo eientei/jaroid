@@ -49,6 +49,13 @@ func (conf *Configuration) HasRole(guildID, userID, roleID string) bool {
 	return guild.hasRole(userID, roleID)
 }
 
+// SetPrefix sets guild prefix for module
+func (conf *Configuration) SetPrefix(guildID, mod, prefix string) {
+	guild := conf.bot.guild(guildID)
+
+	guild.prefixes[mod] = prefix
+}
+
 func containsString(s string, ss ...string) bool {
 	for _, ri := range ss {
 		if ri == s {
@@ -82,6 +89,11 @@ func (conf *Configuration) HasPermission(
 	permissions int,
 	roleIDs, roleNames []string,
 ) bool {
+	guild, _ := conf.Discord.Guild(msg.GuildID)
+	if guild != nil && guild.OwnerID == msg.Author.ID {
+		return true
+	}
+
 	admrole, _ := conf.Repository.ConfigGet(msg.GuildID, "auth", "admin.role")
 
 	member, err := conf.ensureMember(msg)
@@ -98,17 +110,30 @@ func (conf *Configuration) HasPermission(
 			continue
 		}
 
-		if permissions != 0 && role.Permissions&int64(permissions) != 0 {
+		if evalPermissions(role, permissions, r, admrole, roleIDs, roleNames) {
 			return true
 		}
+	}
 
-		if permissions&discordgo.PermissionAdministrator != 0 && r == admrole {
-			return true
-		}
+	return false
+}
 
-		if containsString(r, roleIDs...) || containsString(role.Name, roleNames...) {
-			return true
-		}
+func evalPermissions(
+	role *discordgo.Role,
+	permissions int,
+	r, admrole string,
+	roleIDs, roleNames []string,
+) bool {
+	if permissions != 0 && role.Permissions&int64(permissions) != 0 {
+		return true
+	}
+
+	if permissions&discordgo.PermissionAdministrator != 0 && r == admrole {
+		return true
+	}
+
+	if containsString(r, roleIDs...) || containsString(role.Name, roleNames...) {
+		return true
 	}
 
 	return false
@@ -157,7 +182,9 @@ func (bot *Bot) configure(s *server, guild *discordgo.Guild) {
 		bot.Config.Private.Nicovideo.Limit = 100
 	}
 
-	s.prefix = prefix
+	s.prefixes = map[string]string{
+		"": prefix,
+	}
 
 	err = bot.Repository.ConfigSet(guild.ID, "global", "prefix", prefix)
 	if err != nil {
@@ -174,11 +201,11 @@ func (bot *Bot) Reload() {
 			continue
 		}
 
+		bot.configure(bot.guild(guild.ID), guild)
+
 		for _, m := range bot.Modules {
 			m.Configure(&bot.Configuration, guild)
 		}
-
-		bot.configure(bot.guild(guild.ID), guild)
 	}
 }
 

@@ -1,17 +1,13 @@
 package bot
 
 import (
-	"strings"
-
 	"github.com/bwmarrin/discordgo"
 )
 
 func (bot *Bot) handlerMessageCreate(session *discordgo.Session, messageCreate *discordgo.MessageCreate) {
 	guild := bot.guild(messageCreate.GuildID)
 
-	if strings.HasPrefix(messageCreate.Content, guild.prefix) {
-		_ = bot.Router.Dispatch(session, guild.prefix, session.State.User.ID, messageCreate.Message)
-	}
+	_ = bot.Router.Dispatch(session, guild.prefixes, session.State.User.ID, messageCreate.Message)
 }
 
 func (bot *Bot) handlerMessageUpdate(session *discordgo.Session, messageUpdate *discordgo.MessageUpdate) {
@@ -29,21 +25,19 @@ func (bot *Bot) handlerMessageUpdate(session *discordgo.Session, messageUpdate *
 
 	guild := bot.guild(messageUpdate.GuildID)
 
-	if strings.HasPrefix(messageUpdate.Content, guild.prefix) {
-		_ = bot.Router.Dispatch(session, guild.prefix, session.State.User.ID, messageUpdate.Message)
-	}
+	_ = bot.Router.Dispatch(session, guild.prefixes, session.State.User.ID, messageUpdate.Message)
 }
 
 func (bot *Bot) handlerGuildCreate(_ *discordgo.Session, guildCreate *discordgo.GuildCreate) {
-	for _, m := range bot.Modules {
-		m.Configure(&bot.Configuration, guildCreate.Guild)
-	}
-
 	s := bot.guild(guildCreate.ID)
 
 	bot.m.Lock()
 	bot.configure(s, guildCreate.Guild)
 	bot.m.Unlock()
+
+	for _, m := range bot.Modules {
+		m.Configure(&bot.Configuration, guildCreate.Guild)
+	}
 
 	err := bot.Discord.RequestGuildMembers(guildCreate.ID, "", 0, false)
 	if err != nil {

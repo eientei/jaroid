@@ -190,7 +190,7 @@ func (mod *module) updateMessage(guildID, channelID, messageID, line string) {
 }
 
 func (mod *module) listFormatsVideo(task *TaskList) (err error) {
-	reporter := mediaservice.NewReporter(time.Second*10, 1, nil)
+	reporter := mediaservice.NewReporter(time.Second*10, 1, os.Stdin)
 
 	go func() {
 		for r := range reporter.Messages() {
@@ -224,7 +224,7 @@ func (mod *module) downloadVideo(ctx context.Context, id string, task *TaskDownl
 	output := nicopost.SaveFilepath(mod.config.Config.Private.Nicovideo.Directory, task.VideoURL, task.Format)
 
 	opts := &mediaservice.SaveOptions{
-		Reporter: mediaservice.NewReporter(time.Second*10, 1, nil),
+		Reporter: mediaservice.NewReporter(time.Second*10, 1, os.Stdin),
 	}
 
 	if task.Subs != "" {

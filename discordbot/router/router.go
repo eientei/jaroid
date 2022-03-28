@@ -25,14 +25,49 @@ type Router struct {
 }
 
 // Dispatch tries to find matching route and execute it
-func (router *Router) Dispatch(session *discordgo.Session, prefix, userID string, msg *discordgo.Message) (err error) {
+func (router *Router) Dispatch(
+	session *discordgo.Session,
+	prefixes map[string]string,
+	userID string,
+	msg *discordgo.Message,
+) (err error) {
 	if msg.Author.ID == userID {
 		return nil
 	}
 
+	prefix := prefixes[""]
+
+	var excludes []string
+
+	for ex, p := range prefixes {
+		if p != "" && ex != "" {
+			excludes = append(excludes, ex)
+		}
+	}
+
+	matched, err := router.dispatch(session, excludes, "", prefix, msg)
+	if err != nil || matched {
+		return
+	}
+
+	for _, g := range excludes {
+		matched, err = router.dispatch(session, nil, g, prefixes[g], msg)
+		if err != nil || matched {
+			return
+		}
+	}
+
+	return ErrNotMatched
+}
+
+func (router *Router) dispatch(
+	session *discordgo.Session,
+	excludegroups []string, only, prefix string,
+	msg *discordgo.Message,
+) (matched bool, err error) {
 	raw := msg.Content
 	if !strings.HasPrefix(raw, prefix) {
-		return nil
+		return false, nil
 	}
 
 	raw = strings.TrimPrefix(raw, prefix)
@@ -41,15 +76,19 @@ func (router *Router) Dispatch(session *discordgo.Session, prefix, userID string
 	reader.Comma = ' '
 	reader.TrimLeadingSpace = true
 
-	var args []string
-
-	args, err = reader.Read()
+	args, err := reader.Read()
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	for _, r := range router.Routes {
 		if r.Matcher(raw) {
+			if checkExclude(excludegroups, only, r) {
+				continue
+			}
+
+			matched = true
+
 			if r.Baked == nil {
 				var middlewares []MiddlewareFunc
 
@@ -78,7 +117,33 @@ func (router *Router) Dispatch(session *discordgo.Session, prefix, userID string
 		}
 	}
 
-	return ErrNotMatched
+	return
+}
+
+func checkExclude(excludegroups []string, only string, r *Route) bool {
+	if only != "" {
+		var matched bool
+
+		for _, g := range r.Groups {
+			if g.Name == only {
+				matched = true
+			}
+		}
+
+		if !matched {
+			return true
+		}
+	}
+
+	for _, g := range r.Groups {
+		for _, exg := range excludegroups {
+			if g.Name == exg {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 // Group returns group with given name

@@ -19,7 +19,7 @@ type module struct {
 }
 
 func (mod *module) Initialize(config *bot.Configuration) error {
-	group := config.Router.Group("info").SetDescription("help & status")
+	group := config.Router.Group("help").SetDescription("help & status")
 
 	group.On("help", "prints help", mod.commandHelp)
 
@@ -27,7 +27,16 @@ func (mod *module) Initialize(config *bot.Configuration) error {
 }
 
 func (mod *module) Configure(config *bot.Configuration, guild *discordgo.Guild) {
+	prefix, err := config.Repository.ConfigGet(guild.ID, "help", "prefix")
+	if err != nil {
+		config.Log.WithError(err).Error("Getting help prefix", guild.ID)
 
+		return
+	}
+
+	if prefix != "" {
+		config.SetPrefix(guild.ID, "help", prefix)
+	}
 }
 
 func (mod *module) Shutdown(config *bot.Configuration) {
