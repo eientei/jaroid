@@ -92,6 +92,17 @@ func (mod *module) Initialize(config *bot.Configuration) error {
 }
 
 func (mod *module) Configure(config *bot.Configuration, guild *discordgo.Guild) {
+	prefix, err := config.Repository.ConfigGet(guild.ID, "nico", "prefix")
+	if err != nil {
+		config.Log.WithError(err).Error("Getting nico prefix", guild.ID)
+
+		return
+	}
+
+	if prefix != "" {
+		config.SetPrefix(guild.ID, "nico", prefix)
+	}
+
 	s := &server{}
 
 	for _, c := range config.Config.Servers {

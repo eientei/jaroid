@@ -61,7 +61,16 @@ func (mod *module) Initialize(config *bot.Configuration) error {
 }
 
 func (mod *module) Configure(config *bot.Configuration, guild *discordgo.Guild) {
+	prefix, err := config.Repository.ConfigGet(guild.ID, "rolereact", "prefix")
+	if err != nil {
+		config.Log.WithError(err).Error("Getting rolereact prefix", guild.ID)
 
+		return
+	}
+
+	if prefix != "" {
+		config.SetPrefix(guild.ID, "rolereact", prefix)
+	}
 }
 
 func (mod *module) Shutdown(config *bot.Configuration) {

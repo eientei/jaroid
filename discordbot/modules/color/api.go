@@ -93,6 +93,17 @@ func (mod *module) Configure(config *bot.Configuration, guild *discordgo.Guild) 
 			colorroles: make(map[string]*discordgo.Role),
 		}
 	}
+
+	prefix, err := config.Repository.ConfigGet(guild.ID, "color", "prefix")
+	if err != nil {
+		config.Log.WithError(err).Error("Getting color prefix", guild.ID)
+
+		return
+	}
+
+	if prefix != "" {
+		config.SetPrefix(guild.ID, "color", prefix)
+	}
 }
 
 func (mod *module) Shutdown(config *bot.Configuration) {

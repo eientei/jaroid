@@ -75,6 +75,16 @@ func (mod *module) loadIgnorePatterns(guildID string) (m map[string]*regexp.Rege
 }
 
 func (mod *module) Configure(config *bot.Configuration, guild *discordgo.Guild) {
+	prefix, err := config.Repository.ConfigGet(guild.ID, "join", "prefix")
+	if err != nil {
+		config.Log.WithError(err).Error("Getting join prefix", guild.ID)
+
+		return
+	}
+
+	if prefix != "" {
+		config.SetPrefix(guild.ID, "join", prefix)
+	}
 }
 
 func (mod *module) Shutdown(config *bot.Configuration) {
