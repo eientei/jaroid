@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+	"sync"
 	"time"
 
 	redis "github.com/go-redis/redis/v7"
@@ -14,6 +15,7 @@ import (
 type Repository struct {
 	Client *redis.Client
 	Groups map[string]bool
+	m      sync.RWMutex
 }
 
 // ConfigSet sets config value for given guild
@@ -176,8 +178,23 @@ func (repo *Repository) readMessages(
 }
 
 func (repo *Repository) ensureGroup(fkey string) {
-	if _, ok := repo.Groups[fkey]; !ok {
+	repo.m.RLock()
+
+	_, ok := repo.Groups[fkey]
+
+	repo.m.RUnlock()
+
+	if !ok {
+		repo.m.Lock()
+		defer repo.m.Unlock()
+
+		_, ok = repo.Groups[fkey]
+		if ok {
+			return
+		}
+
 		repo.Client.XGroupCreateMkStream(fkey, "tasks", "0")
+
 		repo.Groups[fkey] = true
 	}
 }

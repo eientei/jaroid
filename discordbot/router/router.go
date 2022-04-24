@@ -31,7 +31,7 @@ func (router *Router) Dispatch(
 	userID string,
 	msg *discordgo.Message,
 ) (err error) {
-	if msg.Author.ID == userID {
+	if msg.Author == nil || msg.Author.ID == userID {
 		return nil
 	}
 
