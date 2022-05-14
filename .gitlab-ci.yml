@@ -1,0 +1,20 @@
+stages:
+  - test
+  - build
+
+golangci:
+  stage: test
+  image: golangci/golangci-lint:v1.46
+  script:
+    - golangci-lint run
+
+build:
+  stage: build
+  image: golang:1.18.2-alpine3.15
+  rules:
+    - if: '$CI_COMMIT_REF_PROTECTED == "true" && $CI_COMMIT_TAG != null'
+  script:
+    - go install -v ./cmd/...
+  artifacts:
+    paths:
+      - /go/bin/*
