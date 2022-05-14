@@ -27,7 +27,7 @@ build:
         done
       done
       wait
-    - wget -q "https://gitlab.com/api/v4/projects/gitlab-org%2Frelease-cli/packages/generic/release-cli/latest/release-cli"
+    - wget -q "https://gitlab.com/api/v4/projects/gitlab-org%2Frelease-cli/packages/generic/release-cli/latest/release-cli-linux-amd64" -O "release-cli"
     - chmod +x release-cli
   artifacts:
     paths:
