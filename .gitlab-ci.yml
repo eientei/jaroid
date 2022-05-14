@@ -21,7 +21,7 @@ build:
         SUFFIX=$([ $GOOS = "windows" ] && echo ".exe" || true)
         for GOARCH in amd64 386; do
           for BIN in jaroid jaroidfedi; do
-            go bild ./cmd/$BIN -o ${BIN}-${CI_COMMIT_TAG}-${GOOS}-${GOARCH}${SUFFIX} &
+            go build -o ${BIN}-${CI_COMMIT_TAG}-${GOOS}-${GOARCH}${SUFFIX} ./cmd/$BIN &
           done
         done
       done
