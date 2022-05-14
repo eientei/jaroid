@@ -20,8 +20,9 @@ build:
       for GOOS in linux windows darwin; do
         SUFFIX=$([ $GOOS = "windows" ] && echo ".exe" || true)
         for GOARCH in amd64 386; do
+          [ $GOOS = "darwin" ] && [ $GOARCH = "amd64" ] && continue || true;
           for BIN in jaroid jaroidfedi; do
-            go build -o ${BIN}-${CI_COMMIT_TAG}-${GOOS}-${GOARCH}${SUFFIX} ./cmd/$BIN &
+            GOOS=$GOOS GOARCh=$GOARCH go build -o ${BIN}-${CI_COMMIT_TAG}-${GOOS}-${GOARCH}${SUFFIX} ./cmd/$BIN &
           done
         done
       done
