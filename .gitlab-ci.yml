@@ -31,3 +31,30 @@ build:
     paths:
       - jaroid-*
       - jaroidfedi-*
+  release:
+    name: "$CI_COMMIT_TAG"
+    tag_name: "$CI_COMMIT_TAG"
+    assets:
+      links:
+        - name: "jaroid-${CI_COMMIT_TAG}-linux-386"
+          url: "https://gitlab.eientei.org/eientei/jaroid/-/jobs/${CI_JOB_ID}/artifacts/file/jaroid-${CI_COMMIT_TAG}-linux-386"
+        - name: "jaroidfedi-${CI_COMMIT_TAG}-linux-386"
+          url: "https://gitlab.eientei.org/eientei/jaroid/-/jobs/${CI_JOB_ID}/artifacts/file/jaroidfedi-${CI_COMMIT_TAG}-linux-386"
+        - name: "jaroid-${CI_COMMIT_TAG}-linux-amd64"
+          url: "https://gitlab.eientei.org/eientei/jaroid/-/jobs/${CI_JOB_ID}/artifacts/file/jaroid-${CI_COMMIT_TAG}-linux-amd64"
+        - name: "jaroidfedi-${CI_COMMIT_TAG}-linux-amd64"
+          url: "https://gitlab.eientei.org/eientei/jaroid/-/jobs/${CI_JOB_ID}/artifacts/file/jaroidfedi-${CI_COMMIT_TAG}-linux-amd64"
+
+        - name: "jaroid-${CI_COMMIT_TAG}-windows-386.exe"
+          url: "https://gitlab.eientei.org/eientei/jaroid/-/jobs/${CI_JOB_ID}/artifacts/file/jaroid-${CI_COMMIT_TAG}-windows-386.exe"
+        - name: "jaroidfedi-${CI_COMMIT_TAG}-windows-386.exe"
+          url: "https://gitlab.eientei.org/eientei/jaroid/-/jobs/${CI_JOB_ID}/artifacts/file/jaroidfedi-${CI_COMMIT_TAG}-windows-386.exe"
+        - name: "jaroid-${CI_COMMIT_TAG}-windows-amd64.exe"
+          url: "https://gitlab.eientei.org/eientei/jaroid/-/jobs/${CI_JOB_ID}/artifacts/file/jaroid-${CI_COMMIT_TAG}-windows-amd64.exe"
+        - name: "jaroidfedi-${CI_COMMIT_TAG}-windows-amd64.exe"
+          url: "https://gitlab.eientei.org/eientei/jaroid/-/jobs/${CI_JOB_ID}/artifacts/file/jaroidfedi-${CI_COMMIT_TAG}-windows-amd64.exe"
+
+        - name: "jaroid-${CI_COMMIT_TAG}-darwin-amd64"
+          url: "https://gitlab.eientei.org/eientei/jaroid/-/jobs/${CI_JOB_ID}/artifacts/file/jaroid-${CI_COMMIT_TAG}-darwin-amd64"
+        - name: "jaroidfedi-${CI_COMMIT_TAG}-darwin-amd64"
+          url: "https://gitlab.eientei.org/eientei/jaroid/-/jobs/${CI_JOB_ID}/artifacts/file/jaroidfedi-${CI_COMMIT_TAG}-darwin-amd64"
