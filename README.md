@@ -8,3 +8,7 @@ Components:
 - [jaroidfedipost](README.jaroidfedipost.md)
 
   CLI utility for posting nicovideo uploads
+
+- [jaroid](README.jaroid.md)
+
+  Discord bot providing same nicovideo download, API search and feeds, alongside with more conventional colored/reaction roles and proxied message pinning.
