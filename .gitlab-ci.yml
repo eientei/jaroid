@@ -4,7 +4,7 @@ stages:
 
 golangci:
   stage: test
-  image: golangci/golangci-lint:v1.46
+  image: golangci/golangci-lint:v1.46-alpine
   script:
     - golangci-lint run
 
