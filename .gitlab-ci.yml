@@ -18,7 +18,7 @@ build:
   script:
     - |
       for GOOS in linux windows darwin; do
-        SUFFIX=$([ $GOOS = "windows" ] && echo ".exe")
+        SUFFIX=$([ $GOOS = "windows" ] && echo ".exe" || true)
         for GOARCH in amd64 386; do
           for BIN in jaroid jaroidfedi; do
             go bild ./cmd/$BIN -o ${BIN}-${CI_COMMIT_TAG}-${GOOS}-${GOARCH}${SUFFIX} &
