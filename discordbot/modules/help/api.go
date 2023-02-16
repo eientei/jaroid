@@ -44,7 +44,7 @@ func (mod *module) Shutdown(config *bot.Configuration) {
 }
 
 func (mod *module) renderName(r *router.Route) string {
-	if len(r.Alias) == 0 {
+	if len(r.Alias) == 0 || !r.AliasHelp {
 		return r.Name
 	}
 

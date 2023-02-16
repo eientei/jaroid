@@ -227,8 +227,8 @@ func (router *Router) On(group, name, desc string, handler HandlerFunc) (route *
 }
 
 // OnAlias creates new route in given group using alias name matcher
-func (router *Router) OnAlias(group, name, desc string, alias []string, handler HandlerFunc) (route *Route) {
-	return router.Group(group).OnAlias(name, desc, alias, handler)
+func (router *Router) OnAlias(group, name, desc string, alias []string, help bool, handler HandlerFunc) (route *Route) {
+	return router.Group(group).OnAlias(name, desc, alias, help, handler)
 }
 
 // OnRegex creates new route in given group using regex matcher

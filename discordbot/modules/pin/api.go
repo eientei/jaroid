@@ -4,6 +4,7 @@ package pin
 import (
 	"errors"
 	"sync"
+	"time"
 
 	"github.com/eientei/jaroid/discordbot/bot"
 	"github.com/eientei/jaroid/discordbot/router"
@@ -22,6 +23,10 @@ var (
 	ErrNotPinned = errors.New("not  pinned")
 	// ErrNotAllowed is returned when calling user do not have emoji editing role
 	ErrNotAllowed = errors.New("not allowed")
+	// ErrTooEarly is returned when unpin is attempted too early after pin
+	ErrTooEarly = errors.New("too early")
+	// ErrTooFrequent is returned when unpin is attempted too frequently
+	ErrTooFrequent = errors.New("too frequent")
 )
 
 // New provides module instance
@@ -45,8 +50,8 @@ func (mod *module) Initialize(config *bot.Configuration) error {
 
 	group := config.Router.Group("pins").SetDescription("manage pins")
 
-	group.On("pin", "pin message by ID", mod.commandPin)
-	group.On("unpin", "unpin message by ID", mod.commandUnpin)
+	group.OnAlias("pin", "pin message by ID", []string{"anus"}, false, mod.commandPin)
+	group.OnAlias("unpin", "unpin message by ID", []string{"deanus", "unanus"}, false, mod.commandUnpin)
 
 	return nil
 }
@@ -126,6 +131,26 @@ func (mod *module) commandPin(ctx *router.Context) error {
 		return ErrNotAllowed
 	}
 
+	key := ctx.Message.GuildID + "." + ctx.Message.Author.ID + ".pin"
+
+	v := mod.config.Client.Incr(key).Val()
+	if v == 1 {
+		mod.config.Client.Expire(key, time.Hour)
+	}
+
+	if v > 1 {
+		switch {
+		case v < 5:
+			return ErrTooFrequent
+		case v < 10:
+			return errors.New("still too frequent")
+		case v < 20:
+			return errors.New("занякал")
+		case v < 50:
+			return errors.New("в игнор ребёнка")
+		}
+	}
+
 	var messageID string
 
 	switch {
@@ -137,7 +162,7 @@ func (mod *module) commandPin(ctx *router.Context) error {
 		return ErrInvalidArgumentNumber
 	}
 
-	_, err = ctx.Session.ChannelMessage(ctx.Message.ChannelID, messageID)
+	msg, err := ctx.Session.ChannelMessage(ctx.Message.ChannelID, messageID)
 	if err != nil {
 		return ErrInvalidMessageID
 	}
@@ -153,6 +178,8 @@ func (mod *module) commandPin(ctx *router.Context) error {
 		}
 	}
 
+	mod.config.Client.Set(msg.GuildID+"."+messageID+".pinned", msg.Author.ID, time.Hour*24*7)
+
 	return ctx.Session.ChannelMessagePin(ctx.Message.ChannelID, messageID)
 }
 
@@ -166,6 +193,26 @@ func (mod *module) commandUnpin(ctx *router.Context) error {
 		return ErrNotAllowed
 	}
 
+	key := ctx.Message.GuildID + "." + ctx.Message.Author.ID + ".unpin"
+
+	v := mod.config.Client.Incr(key).Val()
+	if v == 1 {
+		mod.config.Client.Expire(key, time.Hour)
+	}
+
+	if v > 1 {
+		switch {
+		case v < 5:
+			return ErrTooFrequent
+		case v < 10:
+			return errors.New("still too frequent")
+		case v < 20:
+			return errors.New("занякал")
+		case v < 50:
+			return errors.New("в игнор ребёнка")
+		}
+	}
+
 	var messageID string
 
 	switch {
@@ -177,9 +224,13 @@ func (mod *module) commandUnpin(ctx *router.Context) error {
 		return ErrInvalidArgumentNumber
 	}
 
-	_, err = ctx.Session.ChannelMessage(ctx.Message.ChannelID, messageID)
+	msg, err := ctx.Session.ChannelMessage(ctx.Message.ChannelID, messageID)
 	if err != nil {
 		return ErrInvalidMessageID
+	}
+
+	if mod.config.Client.Exists(msg.GuildID+"."+messageID+".pinned").Val() != 0 {
+		return ErrTooEarly
 	}
 
 	msgs, err := mod.currentPins(ctx.Message.ChannelID)

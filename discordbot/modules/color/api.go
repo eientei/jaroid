@@ -38,7 +38,7 @@ func (mod *module) Initialize(config *bot.Configuration) error {
 	mod.config = config
 
 	group := config.Router.Group("color").SetDescription("color roles")
-	group.OnAlias("color.set", "sets colored role", []string{"color"}, mod.commandSet)
+	group.OnAlias("color.set", "sets colored role", []string{"color"}, true, mod.commandSet)
 	group.On("color.remove", "removes colored role", mod.commandRemove)
 	group.On("color.help", "provides documentation", mod.commandHelp)
 

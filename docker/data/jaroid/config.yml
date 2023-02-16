@@ -9,11 +9,6 @@ private:
     directory: "/data/nico"
     public: "https://your.domain/public/path"
     period: "24h"
-    opts:
-      - "--add-metadata"
-      - "--xattrs"
-      - "--newline"
-#      - "-u"
-#      - "foobar@hurrdurr.com"
-#      - "-p"
-#      - "fugyou"
+    auth:
+      username: ""
+      password: ""

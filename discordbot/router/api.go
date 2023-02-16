@@ -138,6 +138,7 @@ type Route struct {
 	Middleware  []MiddlewareFunc
 	Groups      []*Group
 	Alias       []string
+	AliasHelp   bool
 }
 
 // Set sets route config value

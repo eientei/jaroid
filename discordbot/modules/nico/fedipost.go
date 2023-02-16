@@ -46,15 +46,16 @@ func (mod *module) startPleromaPost() {
 			continue
 		}
 
+		mod.ackTask(task, id, err)
+
 		err = mod.pleromaPost(context.Background(), task)
+
 		if err != nil {
 			mod.config.Log.WithError(err).Error("Posting pleroma status")
 			_ = mod.config.Discord.MessageReactionAdd(task.ChannelID, task.MessageID, emojiNegative)
 		} else {
 			_ = mod.config.Discord.MessageReactionAdd(task.ChannelID, task.MessageID, emojiArrowUp)
 		}
-
-		mod.ackTask(task, id, err)
 	}
 }
 

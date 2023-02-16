@@ -32,9 +32,10 @@ func (group *Group) On(name, desc string, handler HandlerFunc) (route *Route) {
 }
 
 // OnAlias adds route to group using alias name matcher
-func (group *Group) OnAlias(name, desc string, alias []string, handler HandlerFunc) (route *Route) {
+func (group *Group) OnAlias(name, desc string, alias []string, help bool, handler HandlerFunc) (route *Route) {
 	route = group.Router.Route(nameAliasMatcher(name, alias), name, desc, handler)
 	route.Alias = alias
+	route.AliasHelp = help
 
 	group.AddRoute(route)
 

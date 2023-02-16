@@ -74,7 +74,7 @@ func (mod *module) Initialize(config *bot.Configuration) error {
 
 	group := config.Router.Group("nico").SetDescription("nicovideo API")
 
-	group.OnAlias("nico.search", "search for video", []string{"nico"}, mod.commandSearch)
+	group.OnAlias("nico.search", "search for video", []string{"nico"}, true, mod.commandSearch)
 	group.On("nico.list", "search videos list", mod.commandList)
 	group.On("nico.feed", "start nico feed", mod.commandFeed).Set(auth.RouteConfigKey, &auth.RouteConfig{
 		Permissions: discordgo.PermissionAdministrator,
