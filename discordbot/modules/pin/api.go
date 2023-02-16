@@ -121,6 +121,19 @@ func (mod *module) checkPermissions(ctx *router.Context) (bool, error) {
 	return false, nil
 }
 
+func commandPinShenanigans(v int64) error {
+	switch {
+	case v < 5:
+		return ErrTooFrequent
+	case v < 10:
+		return errors.New("still too frequent")
+	case v < 20:
+		return errors.New("занякал")
+	}
+
+	return errors.New("в игнор ребёнка")
+}
+
 func (mod *module) commandPin(ctx *router.Context) error {
 	ok, err := mod.checkPermissions(ctx)
 	if err != nil {
@@ -139,16 +152,7 @@ func (mod *module) commandPin(ctx *router.Context) error {
 	}
 
 	if v > 1 {
-		switch {
-		case v < 5:
-			return ErrTooFrequent
-		case v < 10:
-			return errors.New("still too frequent")
-		case v < 20:
-			return errors.New("занякал")
-		case v < 50:
-			return errors.New("в игнор ребёнка")
-		}
+		return commandPinShenanigans(v)
 	}
 
 	var messageID string
@@ -201,16 +205,7 @@ func (mod *module) commandUnpin(ctx *router.Context) error {
 	}
 
 	if v > 1 {
-		switch {
-		case v < 5:
-			return ErrTooFrequent
-		case v < 10:
-			return errors.New("still too frequent")
-		case v < 20:
-			return errors.New("занякал")
-		case v < 50:
-			return errors.New("в игнор ребёнка")
-		}
+		return commandPinShenanigans(v)
 	}
 
 	var messageID string
