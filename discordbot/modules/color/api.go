@@ -113,16 +113,28 @@ func (mod *module) Shutdown(config *bot.Configuration) {
 func (mod *module) createrole(guildID string, c colorful.Color) (role *discordgo.Role, err error) {
 	hex := c.Hex()
 
-	role, err = mod.config.Discord.GuildRoleCreate(guildID)
-	if err != nil {
-		return nil, fmt.Errorf("creating role: %w", err)
-	}
-
 	r, g, b := c.RGB255()
 
 	v := int(r)<<16 | int(g)<<8 | int(b)
 
-	return mod.config.Discord.GuildRoleEdit(guildID, role.ID, "color"+hex, v, false, 0, false)
+	hoist := false
+
+	permissions := int64(0)
+
+	mentionable := false
+
+	role, err = mod.config.Discord.GuildRoleCreate(guildID, &discordgo.RoleParams{
+		Name:        "color" + hex,
+		Color:       &v,
+		Hoist:       &hoist,
+		Permissions: &permissions,
+		Mentionable: &mentionable,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("creating role: %w", err)
+	}
+
+	return
 }
 
 func (mod *module) setcolor(session *discordgo.Session, guildID, userID string, c colorful.Color) (err error) {

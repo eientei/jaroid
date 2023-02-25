@@ -39,7 +39,7 @@ func (bot *Bot) handlerGuildCreate(_ *discordgo.Session, guildCreate *discordgo.
 		m.Configure(&bot.Configuration, guildCreate.Guild)
 	}
 
-	err := bot.Discord.RequestGuildMembers(guildCreate.ID, "", 0, false)
+	err := bot.Discord.RequestGuildMembers(guildCreate.ID, "", 0, "", false)
 	if err != nil {
 		bot.Log.WithError(err).Error("requesting members", guildCreate)
 	}
