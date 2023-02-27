@@ -5,6 +5,7 @@ package youtubedl
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"io"
 	"os/exec"
 	"regexp"
@@ -34,6 +35,7 @@ func (d *Downloader) readlines(
 	cmd *exec.Cmd,
 	r mediaservice.Reporter,
 	reg *regexp.Regexp,
+	formatID string,
 ) (lines []string, err error) {
 	if r == nil {
 		r = mediaservice.NewDummyReporter()
@@ -83,7 +85,7 @@ func (d *Downloader) readlines(
 		cancel()
 	}()
 
-	lines, err = d.readLinesLoop(bufread, r, reg)
+	lines, err = d.readLinesLoop(bufread, r, reg, formatID)
 
 	return
 }
@@ -92,6 +94,7 @@ func (d *Downloader) readLinesLoop(
 	bufread *bufio.Reader,
 	r mediaservice.Reporter,
 	reg *regexp.Regexp,
+	formatID string,
 ) (lines []string, err error) {
 	var line string
 
@@ -101,7 +104,7 @@ func (d *Downloader) readLinesLoop(
 		line = strings.TrimSpace(line)
 
 		if strings.Contains(line, "requested format not available") {
-			err = mediaservice.ErrUnknownFormat
+			err = fmt.Errorf("%w: %s", mediaservice.ErrUnknownFormat, formatID)
 		}
 
 		if err != nil {
@@ -160,7 +163,7 @@ func (d *Downloader) ListFormatsRaw(
 		reporter = opts.Reporter
 	}
 
-	lines, err := d.readlines(ctx, cmd, reporter, formatRegexp)
+	lines, err := d.readlines(ctx, cmd, reporter, formatRegexp, "")
 	if err != nil {
 		return nil, err
 	}
@@ -242,7 +245,7 @@ func (d *Downloader) SaveFormatRaw(
 		reporter = opts.Reporter
 	}
 
-	return d.readlines(ctx, cmd, reporter, nil)
+	return d.readlines(ctx, cmd, reporter, nil, "")
 }
 
 // SaveFormat implementation

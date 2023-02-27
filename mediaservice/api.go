@@ -225,7 +225,7 @@ func parseFormatSize(formatID string) (dsize uint64, wildcard bool, tgt string, 
 		parts := strings.Split(formatID, "-")
 
 		if len(parts) != 2 {
-			err = ErrUnknownFormat
+			err = fmt.Errorf("%w: %s", ErrUnknownFormat, formatID)
 
 			return
 		}
@@ -288,7 +288,7 @@ func SelectFormat(
 	}
 
 	if vformatid == "" || aformatid == "" {
-		err = ErrUnknownFormat
+		err = fmt.Errorf("%w: %s", ErrUnknownFormat, formatID)
 	}
 
 	return

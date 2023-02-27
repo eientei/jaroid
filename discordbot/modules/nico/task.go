@@ -2,6 +2,7 @@ package nico
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path"
 	"path/filepath"
@@ -387,7 +388,7 @@ func (mod *module) tryPerform(action func() error) (err error) {
 
 	for {
 		err = action()
-		if err != nil && err != mediaservice.ErrUnknownFormat && err != context.Canceled {
+		if err != nil && !errors.Is(err, mediaservice.ErrUnknownFormat) && err != context.Canceled {
 			if time.Since(last) < time.Second*30 {
 				i++
 			} else {
