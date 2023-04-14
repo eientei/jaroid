@@ -24,7 +24,7 @@ var emojiRegexp = regexp.MustCompile(`((` +
 	`\x{d83c}[\x{d000}-\x{dfff}]|` +
 	`\x{d83d}[\x{d000}-\x{dfff}]|` +
 	`\x{d83e}[\x{d000}-\x{dfff}]|` +
-	`[\x{1F000}-\x{1FFFF}]` +
+	`[\x{1F000}-\x{1FFFF}\x{1F680}-\x{1F6FF}\x{1F600}-\x{1F64F}\x{200D}\x{1F300}-\x{1F5FF}]+` +
 	`)|<:([^:]+:\d+)>)`)
 
 var (
