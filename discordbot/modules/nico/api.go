@@ -493,7 +493,14 @@ func (mod *module) handleStopDownload(
 	}
 
 	if task.UserID != userID &&
-		!mod.config.HasPermission(msg, discordgo.PermissionAdministrator, nil, nil) {
+		!mod.config.HasPermissionUserID(
+			nil,
+			msg.GuildID,
+			userID,
+			discordgo.PermissionAdministrator,
+			nil,
+			nil,
+		) {
 		return
 	}
 

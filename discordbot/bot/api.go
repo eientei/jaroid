@@ -89,24 +89,39 @@ func (conf *Configuration) HasPermission(
 	permissions int,
 	roleIDs, roleNames []string,
 ) bool {
-	guild, _ := conf.Discord.Guild(msg.GuildID)
-	if guild != nil && guild.OwnerID == msg.Author.ID {
+	return conf.HasPermissionUserID(msg.Member, msg.GuildID, msg.Author.ID, permissions, roleIDs, roleNames)
+}
+
+func (conf *Configuration) HasPermissionUserID(
+	member *discordgo.Member,
+	guildID, userID string,
+	permissions int,
+	roleIDs, roleNames []string,
+) bool {
+	guild, _ := conf.Discord.Guild(guildID)
+	if guild != nil && guild.OwnerID == userID {
 		return true
 	}
 
-	admrole, _ := conf.Repository.ConfigGet(msg.GuildID, "auth", "admin.role")
+	admrole, _ := conf.Repository.ConfigGet(guildID, "auth", "admin.role")
 
-	member, err := conf.ensureMember(msg)
-	if err != nil {
-		return false
+	var err error
+
+	if member == nil {
+		member, err = conf.Discord.GuildMember(guildID, userID)
+		if err != nil {
+			conf.Log.WithError(err).Error("Loading member", guildID, userID)
+
+			return false
+		}
 	}
 
 	for _, r := range member.Roles {
 		var role *discordgo.Role
 
-		role, err = conf.Discord.State.Role(msg.GuildID, r)
+		role, err = conf.Discord.State.Role(guildID, r)
 		if err != nil {
-			conf.Log.WithError(err).Error("Loading role", msg.GuildID, r)
+			conf.Log.WithError(err).Error("Loading role", guildID, r)
 			continue
 		}
 
