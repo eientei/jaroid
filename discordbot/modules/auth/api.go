@@ -50,7 +50,7 @@ func (mod *module) Shutdown(config *bot.Configuration) {
 }
 
 func (mod *module) checkPermissions(ctx *router.Context, auth *RouteConfig) bool {
-	return mod.config.HasPermission(ctx.Message, auth.Permissions, auth.RoleIDs, auth.RoleNames)
+	return mod.config.AuthorHasPermission(ctx.Message, auth.Permissions, auth.RoleIDs, auth.RoleNames)
 }
 
 func (mod *module) middlewareAuth(handler router.HandlerFunc) router.HandlerFunc {

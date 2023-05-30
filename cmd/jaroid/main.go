@@ -1,3 +1,4 @@
+// Package main discord bot entrypoint
 package main
 
 import (

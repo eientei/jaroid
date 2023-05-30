@@ -1,3 +1,4 @@
+// Package main cli util entrypoint
 package main
 
 import (

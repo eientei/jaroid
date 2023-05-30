@@ -66,33 +66,17 @@ func containsString(s string, ss ...string) bool {
 	return false
 }
 
-func (conf *Configuration) ensureMember(msg *discordgo.Message) (*discordgo.Member, error) {
-	if msg.Member != nil {
-		return msg.Member, nil
-	}
-
-	var err error
-
-	msg.Member, err = conf.Discord.GuildMember(msg.GuildID, msg.Author.ID)
-	if err != nil {
-		conf.Log.WithError(err).Error("Loading member", msg.GuildID, msg.Author.ID)
-
-		return msg.Member, err
-	}
-
-	return msg.Member, nil
-}
-
-// HasPermission returns true if user has administrative or matching permissions
-func (conf *Configuration) HasPermission(
+// AuthorHasPermission returns true if message author has administrative or matching permissions
+func (conf *Configuration) AuthorHasPermission(
 	msg *discordgo.Message,
 	permissions int,
 	roleIDs, roleNames []string,
 ) bool {
-	return conf.HasPermissionUserID(msg.Member, msg.GuildID, msg.Author.ID, permissions, roleIDs, roleNames)
+	return conf.HasPermission(msg.Member, msg.GuildID, msg.Author.ID, permissions, roleIDs, roleNames)
 }
 
-func (conf *Configuration) HasPermissionUserID(
+// HasPermission returns true if user administrative or matching permissions
+func (conf *Configuration) HasPermission(
 	member *discordgo.Member,
 	guildID, userID string,
 	permissions int,

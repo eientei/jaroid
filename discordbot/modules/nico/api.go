@@ -356,7 +356,7 @@ func queuedMessage(id, content string, pos int64) string {
 func (mod *module) parseNicoDownloadArgs(ctx *router.Context) (format, subs string, post, preview bool) {
 	for i := 2; i < len(ctx.Args); i++ {
 		switch {
-		case (ctx.Args[i] == "post" || ctx.Args[i] == "preview") && mod.config.HasPermission(
+		case (ctx.Args[i] == "post" || ctx.Args[i] == "preview") && mod.config.AuthorHasPermission(
 			ctx.Message,
 			discordgo.PermissionAdministrator,
 			nil,
@@ -493,7 +493,7 @@ func (mod *module) handleStopDownload(
 	}
 
 	if task.UserID != userID &&
-		!mod.config.HasPermissionUserID(
+		!mod.config.HasPermission(
 			nil,
 			msg.GuildID,
 			userID,
