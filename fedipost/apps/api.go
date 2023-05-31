@@ -2,6 +2,7 @@
 package apps
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -10,6 +11,9 @@ import (
 
 	"github.com/eientei/jaroid/fedipost"
 )
+
+// ErrInvalidToken is returned when supplied token is invalid
+var ErrInvalidToken = errors.New("invalid token")
 
 // App contains created app details
 type App struct {
@@ -28,7 +32,7 @@ type AppConfig struct {
 }
 
 // Create creates new app using app config
-func Create(config *fedipost.Config, appconf *AppConfig) (*App, error) {
+func Create(ctx context.Context, config *fedipost.Config, appconf *AppConfig) (*App, error) {
 	values := url.Values{}
 
 	values.Set("client_name", appconf.ClientName)
@@ -37,7 +41,7 @@ func Create(config *fedipost.Config, appconf *AppConfig) (*App, error) {
 
 	encoded := values.Encode()
 
-	req, err := http.NewRequest(http.MethodPost, config.AppsEndpoint, strings.NewReader(encoded))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, config.AppsEndpoint, strings.NewReader(encoded))
 	if err != nil {
 		return nil, err
 	}
@@ -67,4 +71,29 @@ func Create(config *fedipost.Config, appconf *AppConfig) (*App, error) {
 	app.Scopes = appconf.Scopes
 
 	return app, nil
+}
+
+// Verify performs client token verification
+func Verify(ctx context.Context, config *fedipost.Config, clientToken string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, config.AppsVerifyEndpoint, nil)
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+clientToken)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	if resp.StatusCode/100 != 2 {
+		return ErrInvalidToken
+	}
+
+	return nil
 }

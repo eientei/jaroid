@@ -15,6 +15,7 @@ import (
 
 	"github.com/eientei/jaroid/fedipost"
 	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/clientcredentials"
 	yaml "gopkg.in/yaml.v2"
 )
 
@@ -209,6 +210,7 @@ func (r *Root) RestConfig(
 		MediaEndpoint:          inst.Endpoints.Media,
 		StatusesEndpoint:       inst.Endpoints.Statuses,
 		AppsEndpoint:           inst.Endpoints.Apps,
+		AppsVerifyEndpoint:     inst.Endpoints.Apps + "/verify_credentials",
 		OauthTokenEndpoint:     inst.Endpoints.OauthToken,
 		OauthAuthorizeEndpoint: inst.Endpoints.OauthAuthorize,
 		UserAgent:              useragent,
@@ -304,10 +306,21 @@ func (inst *Instance) OAuth2Config(redirect string) *oauth2.Config {
 	}
 }
 
+// OAuth2ClientCredentialsConfig returns client credentials config
+func (inst *Instance) OAuth2ClientCredentialsConfig(client *Client) *clientcredentials.Config {
+	return &clientcredentials.Config{
+		ClientID:     client.ClientID,
+		ClientSecret: client.ClientSecret,
+		TokenURL:     inst.Endpoints.OauthToken,
+		Scopes:       client.Scopes,
+	}
+}
+
 // Client contains oauth client details
 type Client struct {
 	ClientID     string   `yaml:"client_id,omitempty"`
 	ClientSecret string   `yaml:"client_secret,omitempty"`
+	ClientToken  string   `yaml:"client_token,omitempty"`
 	RedirectURI  string   `yaml:"redirect_uri,omitempty"`
 	Scopes       []string `yaml:"scopes,omitempty"`
 }

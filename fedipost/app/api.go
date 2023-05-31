@@ -4,21 +4,18 @@ package app
 import (
 	"context"
 	"errors"
-	"net/http"
-	"os"
-	"path/filepath"
-
 	"github.com/eientei/cookiejarx"
-	"github.com/eientei/jaroid/util/httputil/middleware"
-
 	"github.com/eientei/jaroid/fedipost"
 	"github.com/eientei/jaroid/fedipost/apps"
 	"github.com/eientei/jaroid/fedipost/config"
 	"github.com/eientei/jaroid/fedipost/statuses"
-	"github.com/eientei/jaroid/nicopost"
-
 	"github.com/eientei/jaroid/integration/nicovideo"
+	"github.com/eientei/jaroid/nicopost"
+	"github.com/eientei/jaroid/util/httputil/middleware"
 	"golang.org/x/oauth2"
+	"net/http"
+	"os"
+	"path/filepath"
 )
 
 // Fedipost contains fedipost app state
@@ -131,8 +128,8 @@ func (f *Fedipost) Save() error {
 	return nil
 }
 
-// MakeAccoutAuthorization returns authorization URL for user to follow
-func (f *Fedipost) MakeAccoutAuthorization(ctx context.Context, instance, login, redirect string) (string, error) {
+// MakeAccountAuthorization returns authorization URL for user to follow
+func (f *Fedipost) MakeAccountAuthorization(ctx context.Context, instance, login, redirect string) (string, error) {
 	inst, err := f.Config.Instance(instance)
 	if err != nil {
 		return "", err
@@ -145,31 +142,98 @@ func (f *Fedipost) MakeAccoutAuthorization(ctx context.Context, instance, login,
 
 	client := inst.Client(redirect)
 
-	if client.ClientID == "" || client.ClientSecret == "" {
-		var app *apps.App
-
-		app, err = apps.Create(conf, &apps.AppConfig{
-			ClientName:   "jaroid",
-			RedirectURIs: []string{client.RedirectURI},
-			Scopes:       client.Scopes,
-		})
-		if err != nil {
-			return "", err
-		}
-
-		client.ClientID = app.ClientID
-		client.ClientSecret = app.ClientSecret
-		client.Scopes = app.Scopes
-
-		err = f.Save()
-		if err != nil {
-			return "", err
-		}
+	err = f.ensureClient(ctx, inst, conf, client)
+	if err != nil {
+		return "", err
 	}
 
 	oauthconf := inst.OAuth2Config(redirect)
 
 	return oauthconf.AuthCodeURL(""), nil
+}
+
+func (f *Fedipost) createClientApp(ctx context.Context, conf *fedipost.Config, client *config.Client) error {
+	app, err := apps.Create(ctx, conf, &apps.AppConfig{
+		ClientName:   "jaroid",
+		RedirectURIs: []string{client.RedirectURI},
+		Scopes:       client.Scopes,
+	})
+	if err != nil {
+		return err
+	}
+
+	client.ClientID = app.ClientID
+	client.ClientSecret = app.ClientSecret
+	client.Scopes = app.Scopes
+
+	return f.Save()
+}
+
+func (f *Fedipost) createClientToken(ctx context.Context, inst *config.Instance, client *config.Client) error {
+	tok, err := inst.OAuth2ClientCredentialsConfig(client).Token(ctx)
+	if err != nil {
+		return err
+	}
+
+	client.ClientToken = tok.AccessToken
+
+	return f.Save()
+}
+
+func (f *Fedipost) ensureClientToken(
+	ctx context.Context,
+	inst *config.Instance,
+	conf *fedipost.Config,
+	client *config.Client,
+) error {
+	if client.ClientToken != "" {
+		return nil
+	}
+
+	err := f.createClientToken(ctx, inst, client)
+	if err != nil {
+		err = f.createClientApp(ctx, conf, client)
+		if err != nil {
+			return err
+		}
+
+		err = f.createClientToken(ctx, inst, client)
+	}
+
+	return err
+}
+
+func (f *Fedipost) ensureClient(
+	ctx context.Context,
+	inst *config.Instance,
+	conf *fedipost.Config,
+	client *config.Client,
+) error {
+	if client.ClientID == "" || client.ClientSecret == "" {
+		err := f.createClientApp(ctx, conf, client)
+		if err != nil {
+			return err
+		}
+	}
+
+	err := f.ensureClientToken(ctx, inst, conf, client)
+	if err != nil {
+		return err
+	}
+
+	err = apps.Verify(ctx, conf, client.ClientToken)
+	if err != nil {
+		client.ClientToken = ""
+
+		err = f.ensureClientToken(ctx, inst, conf, client)
+		if err != nil {
+			return err
+		}
+
+		err = apps.Verify(ctx, conf, client.ClientToken)
+	}
+
+	return err
 }
 
 func (f *Fedipost) login(ctx context.Context, uri, login, redirect string) (*fedipost.Config, string, error) {

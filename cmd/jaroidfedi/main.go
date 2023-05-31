@@ -269,7 +269,7 @@ func handleAccount(ctx context.Context, c *binconfig, fedipost *app.Fedipost) {
 	}
 
 	if opts.Acccount.Code == "" {
-		authurl, err := fedipost.MakeAccoutAuthorization(ctx, c.uri, c.login, c.redirect)
+		authurl, err := fedipost.MakeAccountAuthorization(ctx, c.uri, c.login, c.redirect)
 		if err != nil {
 			panic(err)
 		}

@@ -14,6 +14,7 @@ type Config struct {
 	MediaEndpoint          string
 	StatusesEndpoint       string
 	AppsEndpoint           string
+	AppsVerifyEndpoint     string
 	OauthTokenEndpoint     string
 	OauthAuthorizeEndpoint string
 	UserAgent              string

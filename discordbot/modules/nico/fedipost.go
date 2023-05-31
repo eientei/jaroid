@@ -71,6 +71,7 @@ func (mod *module) pleromaPost(ctx context.Context, task *TaskPleromaPost) error
 		MediaEndpoint:          task.PleromaHost + "/api/v1/media",
 		StatusesEndpoint:       task.PleromaHost + "/api/v1/statuses",
 		AppsEndpoint:           task.PleromaHost + "/api/v1/apps",
+		AppsVerifyEndpoint:     task.PleromaHost + "/api/v1/apps/verify_credentials",
 		OauthTokenEndpoint:     task.PleromaHost + "/oauth/token",
 		OauthAuthorizeEndpoint: task.PleromaHost + "/oauth/authorize",
 	}
