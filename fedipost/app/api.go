@@ -4,6 +4,10 @@ package app
 import (
 	"context"
 	"errors"
+	"net/http"
+	"os"
+	"path/filepath"
+
 	"github.com/eientei/cookiejarx"
 	"github.com/eientei/jaroid/fedipost"
 	"github.com/eientei/jaroid/fedipost/apps"
@@ -13,9 +17,6 @@ import (
 	"github.com/eientei/jaroid/nicopost"
 	"github.com/eientei/jaroid/util/httputil/middleware"
 	"golang.org/x/oauth2"
-	"net/http"
-	"os"
-	"path/filepath"
 )
 
 // Fedipost contains fedipost app state
