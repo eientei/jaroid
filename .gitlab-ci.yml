@@ -17,12 +17,13 @@ build:
     - if: '$CI_COMMIT_REF_PROTECTED == "true" && $CI_COMMIT_TAG != null'
   script:
     - |
+      export GO111MODULE=on CGO_ENABLED=0
       for GOOS in linux windows darwin; do
         SUFFIX=$([ $GOOS = "windows" ] && echo ".exe" || true)
         for GOARCH in amd64 386; do
           [ $GOOS = "darwin" ] && [ $GOARCH = "386" ] && continue || true;
           for BIN in jaroid jaroidfedi; do
-            GOOS=$GOOS GOARCh=$GOARCH go build -o ${BIN}-${CI_COMMIT_TAG}-${GOOS}-${GOARCH}${SUFFIX} ./cmd/$BIN &
+            GOOS=$GOOS GOARCh=$GOARCH go build -tags netgo -ldflags '-w -extldflags "-static"' -o ${BIN}-${CI_COMMIT_TAG}-${GOOS}-${GOARCH}${SUFFIX} ./cmd/$BIN &
           done
         done
       done
