@@ -320,7 +320,6 @@ func (inst *Instance) OAuth2ClientCredentialsConfig(client *Client) *clientcrede
 type Client struct {
 	ClientID     string   `yaml:"client_id,omitempty"`
 	ClientSecret string   `yaml:"client_secret,omitempty"`
-	ClientToken  string   `yaml:"client_token,omitempty"`
 	RedirectURI  string   `yaml:"redirect_uri,omitempty"`
 	Scopes       []string `yaml:"scopes,omitempty"`
 }

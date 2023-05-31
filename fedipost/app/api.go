@@ -170,38 +170,17 @@ func (f *Fedipost) createClientApp(ctx context.Context, conf *fedipost.Config, c
 	return f.Save()
 }
 
-func (f *Fedipost) createClientToken(ctx context.Context, inst *config.Instance, client *config.Client) error {
-	tok, err := inst.OAuth2ClientCredentialsConfig(client).Token(ctx)
-	if err != nil {
-		return err
-	}
-
-	client.ClientToken = tok.AccessToken
-
-	return f.Save()
-}
-
-func (f *Fedipost) ensureClientToken(
+func (f *Fedipost) createClientToken(
 	ctx context.Context,
 	inst *config.Instance,
-	conf *fedipost.Config,
 	client *config.Client,
-) error {
-	if client.ClientToken != "" {
-		return nil
-	}
-
-	err := f.createClientToken(ctx, inst, client)
+) (string, error) {
+	tok, err := inst.OAuth2ClientCredentialsConfig(client).Token(ctx)
 	if err != nil {
-		err = f.createClientApp(ctx, conf, client)
-		if err != nil {
-			return err
-		}
-
-		err = f.createClientToken(ctx, inst, client)
+		return "", err
 	}
 
-	return err
+	return tok.AccessToken, nil
 }
 
 func (f *Fedipost) ensureClient(
@@ -217,24 +196,20 @@ func (f *Fedipost) ensureClient(
 		}
 	}
 
-	err := f.ensureClientToken(ctx, inst, conf, client)
+	clientToken, err := f.createClientToken(ctx, inst, client)
 	if err != nil {
-		return err
-	}
-
-	err = apps.Verify(ctx, conf, client.ClientToken)
-	if err != nil {
-		client.ClientToken = ""
-
-		err = f.ensureClientToken(ctx, inst, conf, client)
+		err = f.createClientApp(ctx, conf, client)
 		if err != nil {
 			return err
 		}
 
-		err = apps.Verify(ctx, conf, client.ClientToken)
+		clientToken, err = f.createClientToken(ctx, inst, client)
+		if err != nil {
+			return err
+		}
 	}
 
-	return err
+	return apps.Verify(ctx, conf, clientToken)
 }
 
 func (f *Fedipost) login(ctx context.Context, uri, login, redirect string) (*fedipost.Config, string, error) {
