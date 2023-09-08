@@ -2,6 +2,7 @@ package nico
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path"
@@ -22,15 +23,17 @@ var confirmRegexp = regexp.MustCompile(`Smallest format available for <([^<]*)> 
 
 // TaskDownload provides video download task
 type TaskDownload struct {
-	GuildID   string `json:"guild_id"`
-	ChannelID string `json:"channel_id"`
-	MessageID string `json:"message_id"`
-	VideoURL  string `json:"video_url"`
-	Format    string `json:"format"`
-	UserID    string `json:"user_id"`
-	Subs      string `json:"subs"`
-	Post      bool   `json:"post"`
-	Preview   bool   `json:"preview"`
+	GuildID   string          `json:"guild_id"`
+	ChannelID string          `json:"channel_id"`
+	MessageID string          `json:"message_id"`
+	VideoURL  string          `json:"video_url"`
+	Format    string          `json:"format"`
+	UserID    string          `json:"user_id"`
+	Subs      string          `json:"subs"`
+	Data      json.RawMessage `json:"data"`
+	Estimate  uint64          `json:"estimate"`
+	Post      bool            `json:"post"`
+	Preview   bool            `json:"preview"`
 }
 
 // Scope returns task scope
@@ -137,21 +140,6 @@ func (mod *module) downloadSend(task *TaskDownload, fpath string) {
 
 	if task.Subs != "" {
 		sb.WriteString("\ndanmaku subtitles: " + subtitleFilename(uri, task.Subs))
-
-		_, _, err := mod.config.Repository.TaskEnqueue(&TaskCleanup{
-			GuildID:   task.GuildID,
-			ChannelID: task.ChannelID,
-			MessageID: task.MessageID,
-			FilePath:  subtitleFilename(fpath, task.Subs),
-		}, mod.config.Config.Private.Nicovideo.Period, 0)
-		if err != nil {
-			mod.config.Log.WithError(err).Error(
-				"Scheduling subtitle cleanup",
-				task.GuildID,
-				task.ChannelID,
-				task.MessageID,
-			)
-		}
 	}
 
 	var err error
@@ -162,16 +150,6 @@ func (mod *module) downloadSend(task *TaskDownload, fpath string) {
 
 	if err != nil {
 		mod.config.Log.WithError(err).Error("Editing message", task.GuildID, task.ChannelID, task.MessageID)
-	}
-
-	_, _, err = mod.config.Repository.TaskEnqueue(&TaskCleanup{
-		GuildID:   task.GuildID,
-		ChannelID: task.ChannelID,
-		MessageID: task.MessageID,
-		FilePath:  fpath,
-	}, mod.config.Config.Private.Nicovideo.Period, 0)
-	if err != nil {
-		mod.config.Log.WithError(err).Error("Scheduling cleanup", task.GuildID, task.ChannelID, task.MessageID)
 	}
 
 	if task.Post {
@@ -241,13 +219,11 @@ func (mod *module) downloadVideo(ctx context.Context, id string, task *TaskDownl
 		}
 	}()
 
-	fmtname, err = mod.config.Nicovideo.SaveFormat(ctx, task.VideoURL, task.Format, output, true, opts)
+	fmtname, err = mod.config.Nicovideo.SaveFormat(ctx, task.VideoURL, task.Format, output, true, task.Data, opts)
 	if err != nil {
 		opts.Reporter.Submit("ERROR: "+err.Error(), true)
 
 		mod.config.Log.WithError(err).Error("downloading file")
-
-		return "", err
 	}
 
 	return
@@ -286,17 +262,26 @@ func (mod *module) startList() {
 	}
 }
 
-func (mod *module) startDownloadError(err error, id string, task *TaskDownload) {
+func (mod *module) startDownloadError(err error, task *TaskDownload) {
 	if err == context.Canceled {
 		mod.updateMessage(task.GuildID, task.ChannelID, task.MessageID, "Cancelled")
-		mod.ackTask(task, id, nil)
+
+		return
+	}
+
+	if err == context.DeadlineExceeded {
+		mod.updateMessage(
+			task.GuildID,
+			task.ChannelID,
+			task.MessageID,
+			"Video took more than 1h to download, repeat request to resume within next 24h before it is deleted",
+		)
 
 		return
 	}
 
 	mod.config.Log.WithError(err).Error("Downloading video")
 	mod.updateMessage(task.GuildID, task.ChannelID, task.MessageID, "Downloading error")
-	mod.ackTask(task, id, nil)
 }
 
 func subsExist(task *TaskDownload, path string) bool {
@@ -364,12 +349,50 @@ func (mod *module) startDownload() {
 		_ = mod.config.Discord.MessageReactionRemove(task.ChannelID, task.MessageID, emojiStop, "@me")
 
 		mod.m.Lock()
+
 		mod.task = nil
 		mod.cancel = nil
+
 		mod.m.Unlock()
 
+		mod.ackTask(task, id, nil)
+
+		if len(fpath) > 0 {
+			_, _, cerr := mod.config.Repository.TaskEnqueue(&TaskCleanup{
+				GuildID:   task.GuildID,
+				ChannelID: task.ChannelID,
+				MessageID: task.MessageID,
+				FilePath:  fpath,
+			}, mod.config.Config.Private.Nicovideo.Period, 0)
+			if cerr != nil {
+				mod.config.Log.WithError(cerr).Error(
+					"Scheduling cleanup",
+					task.GuildID,
+					task.ChannelID,
+					task.MessageID,
+				)
+			}
+
+			if task.Subs != "" {
+				_, _, cerr = mod.config.Repository.TaskEnqueue(&TaskCleanup{
+					GuildID:   task.GuildID,
+					ChannelID: task.ChannelID,
+					MessageID: task.MessageID,
+					FilePath:  subtitleFilename(fpath, task.Subs),
+				}, mod.config.Config.Private.Nicovideo.Period, 0)
+				if cerr != nil {
+					mod.config.Log.WithError(cerr).Error(
+						"Scheduling subtitle cleanup",
+						task.GuildID,
+						task.ChannelID,
+						task.MessageID,
+					)
+				}
+			}
+		}
+
 		if err != nil {
-			mod.startDownloadError(err, id, task)
+			mod.startDownloadError(err, task)
 
 			continue
 		}
@@ -377,8 +400,6 @@ func (mod *module) startDownload() {
 		if len(fpath) > 0 {
 			mod.downloadSend(task, fpath)
 		}
-
-		mod.ackTask(task, id, nil)
 	}
 }
 
@@ -386,9 +407,14 @@ func (mod *module) tryPerform(action func() error) (err error) {
 	i := 0
 	last := time.Now()
 
-	for {
+	for i < 3 {
 		err = action()
-		if err != nil && !errors.Is(err, mediaservice.ErrUnknownFormat) && err != context.Canceled {
+		if err != nil {
+			if errors.Is(err, mediaservice.ErrUnknownFormat) ||
+				err == context.Canceled || err == context.DeadlineExceeded {
+				break
+			}
+
 			if time.Since(last) < time.Second*30 {
 				i++
 			} else {
@@ -396,14 +422,12 @@ func (mod *module) tryPerform(action func() error) (err error) {
 			}
 
 			last = time.Now()
-
-			if i >= 3 {
-				return err
-			}
 		} else {
-			return nil
+			break
 		}
 	}
+
+	return
 }
 
 func (mod *module) startCleanup() {

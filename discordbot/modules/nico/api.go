@@ -7,7 +7,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/eientei/jaroid/mediaservice"
+	"github.com/eientei/jaroid/nicopost"
+	"github.com/go-redis/redis/v7"
 	"net/url"
+	"path"
 	"regexp"
 	"strconv"
 	"strings"
@@ -326,17 +330,58 @@ func (mod *module) commandDownload(ctx *router.Context) error {
 		return err
 	}
 
-	id, q, err := mod.config.Repository.TaskEnqueue(&TaskDownload{
+	apidata, err := mod.config.Nicovideo.QueryFormat(
+		context.Background(),
+		urlraw,
+		format,
+		mediaservice.NewDummyReporter(),
+	)
+	if err != nil {
+		return err
+	}
+
+	data, err := json.Marshal(apidata)
+	if err != nil {
+		return err
+	}
+
+	formats := apidata.ListFormats()
+
+	_, _, idx, err := mediaservice.SelectFormat(formats, format)
+	if err != nil {
+		return err
+	}
+
+	task := &TaskDownload{
 		GuildID:   ctx.Message.GuildID,
 		ChannelID: msg.ChannelID,
 		MessageID: msg.ID,
 		VideoURL:  urlraw,
 		Format:    format,
 		UserID:    ctx.Message.Author.ID,
+		Subs:      subs,
+		Data:      data,
+		Estimate:  formats[idx].SizeEstimate(),
 		Post:      post,
 		Preview:   preview,
-		Subs:      subs,
-	}, 0, 0)
+	}
+
+	basename := path.Base(task.VideoURL)
+
+	fileID := nicopost.FormatFileID(basename, format)
+
+	var fpath string
+
+	if fpath, err = nicopost.GlobFind(mod.config.Config.Private.Nicovideo.Directory, fileID); err == nil &&
+		len(fpath) > 0 && subsExist(task, fpath) {
+		mod.downloadSend(task, fpath)
+
+		_ = mod.config.Discord.MessageReactionRemove(msg.ChannelID, msg.ID, emojiStop, "@me")
+
+		return nil
+	}
+
+	id, q, err := mod.config.Repository.TaskEnqueue(task, 0, 0)
 
 	mod.updateMessage(msg.GuildID, msg.ChannelID, msg.ID, queuedMessage(id, msg.Content, q))
 
@@ -345,9 +390,34 @@ func (mod *module) commandDownload(ctx *router.Context) error {
 	return err
 }
 
-func queuedMessage(id, content string, pos int64) string {
-	if pos > 0 {
-		return fmt.Sprintf("%s queued at position %d", id, pos)
+func queuedMessage(id, content string, gs []redis.XMessage) string {
+	if len(gs) > 0 {
+		msg := fmt.Sprintf("%s queued at position %d", id, len(gs))
+
+		var queue uint64
+
+		for _, g := range gs {
+			var t TaskDownload
+
+			bs, ok := g.Values["data"].(string)
+			if !ok {
+				return msg
+			}
+
+			err := json.Unmarshal([]byte(bs), &t)
+			if err != nil {
+				return msg
+			}
+
+			queue += t.Estimate
+		}
+
+		return fmt.Sprintf(
+			"%s queued at position %d (in front of you: %s)",
+			id,
+			len(gs),
+			mediaservice.HumanSizeFormat(float64(queue)),
+		)
 	}
 
 	return fmt.Sprintf("%s %s", id, content)
@@ -567,6 +637,28 @@ func (mod *module) handlerReactionAddDownload(
 		return
 	}
 
+	apidata, err := mod.config.Nicovideo.QueryFormat(
+		context.Background(),
+		parts[1],
+		parts[2],
+		mediaservice.NewDummyReporter(),
+	)
+	if err != nil {
+		return
+	}
+
+	data, err := json.Marshal(apidata)
+	if err != nil {
+		return
+	}
+
+	formats := apidata.ListFormats()
+
+	_, _, idx, err := mediaservice.SelectFormat(formats, parts[2])
+	if err != nil {
+		return
+	}
+
 	id, q, _ := mod.config.Repository.TaskEnqueue(&TaskDownload{
 		GuildID:   msg.GuildID,
 		ChannelID: msg.ChannelID,
@@ -574,6 +666,11 @@ func (mod *module) handlerReactionAddDownload(
 		VideoURL:  parts[1],
 		Format:    parts[2],
 		UserID:    messageReactionAdd.UserID,
+		Subs:      "",
+		Data:      data,
+		Estimate:  formats[idx].SizeEstimate(),
+		Post:      false,
+		Preview:   false,
 	}, 0, 0)
 
 	mod.updateMessage(msg.GuildID, msg.ChannelID, msg.ID, queuedMessage(id, msg.Content, q))

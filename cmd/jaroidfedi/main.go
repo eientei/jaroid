@@ -501,7 +501,7 @@ func handleDownload(
 		reuse = false
 	}
 
-	match, err = downloader.SaveFormat(ctx, c.videourl, c.format, match, reuse, downopts)
+	match, err = downloader.SaveFormat(ctx, c.videourl, c.format, match, reuse, nil, downopts)
 	if err != nil {
 		panic(err)
 	}

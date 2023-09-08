@@ -149,6 +149,7 @@ type Downloader interface {
 		ctx context.Context,
 		url, formatID, outpath string,
 		reuse bool,
+		data []byte,
 		opts *SaveOptions,
 	) (string, error)
 }
@@ -238,7 +239,7 @@ func parseFormatSize(formatID string) (dsize uint64, wildcard bool, tgt string, 
 	return
 }
 
-func findFormatSize(formats []*Format, tgt string, dsize uint64) (aformatid, vformatid string) {
+func findFormatSize(formats []*Format, tgt string, dsize uint64) (aformatid, vformatid string, idx int) {
 	for i := len(formats) - 1; i >= 0; i-- {
 		f := formats[i]
 
@@ -246,12 +247,15 @@ func findFormatSize(formats []*Format, tgt string, dsize uint64) (aformatid, vfo
 		case tgt != "":
 			if f.ID == tgt {
 				aformatid, vformatid = f.Audio.ID, f.Video.ID
+				idx = i
 
 				return
 			}
 		default:
 			if f.SizeEstimate() < dsize {
 				aformatid, vformatid = f.Audio.ID, f.Video.ID
+
+				idx = i
 
 				return
 			}
@@ -265,13 +269,13 @@ func findFormatSize(formats []*Format, tgt string, dsize uint64) (aformatid, vfo
 func SelectFormat(
 	formats []*Format,
 	formatID string,
-) (aformatid, vformatid string, err error) {
+) (aformatid, vformatid string, idx int, err error) {
 	dsize, wildcard, tgt, err := parseFormatSize(formatID)
 	if err != nil {
 		return
 	}
 
-	aformatid, vformatid = findFormatSize(formats, tgt, dsize)
+	aformatid, vformatid, idx = findFormatSize(formats, tgt, dsize)
 
 	if tgt == "" && aformatid == "" && vformatid == "" && len(formats) > 0 {
 		f := formats[0]
@@ -285,6 +289,7 @@ func SelectFormat(
 		}
 
 		aformatid, vformatid = f.Audio.ID, f.Video.ID
+		idx = 0
 	}
 
 	if vformatid == "" || aformatid == "" {

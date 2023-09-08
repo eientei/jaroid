@@ -74,87 +74,88 @@ func (d *DurationSeconds) MarshalJSON() ([]byte, error) {
 
 // APIDataSessionURL json mapping
 type APIDataSessionURL struct {
-	URL             string `json:"url"`
-	IsWellKnownPort bool   `json:"isWellKnownPort"`
-	IsSSL           bool   `json:"isSsl"`
+	URL             string `json:"url,omitempty"`
+	IsWellKnownPort bool   `json:"isWellKnownPort,omitempty"`
+	IsSSL           bool   `json:"isSsl,omitempty"`
 }
 
 // APIDataMovieSession json mapping
 type APIDataMovieSession struct {
-	AuthTypes         map[string]string    `json:"authTypes"`
-	RecipeID          string               `json:"recipeId"`
-	PlayerID          string               `json:"playerId"`
-	ServiceUserID     string               `json:"serviceUserId"`
-	Token             string               `json:"token"`
-	Signature         string               `json:"signature"`
-	ContentID         string               `json:"contentId"`
-	Videos            []string             `json:"videos"`
-	Audios            []string             `json:"audios"`
-	URLS              []*APIDataSessionURL `json:"urls"`
-	HeartBeatLifetime uint64               `json:"heartbeatLifetime"`
-	ContentKeyTimeout uint64               `json:"contentKeyTimeout"`
-	Priority          float64              `json:"priority"`
+	AuthTypes         map[string]string    `json:"authTypes,omitempty"`
+	RecipeID          string               `json:"recipeId,omitempty"`
+	PlayerID          string               `json:"playerId,omitempty"`
+	ServiceUserID     string               `json:"serviceUserId,omitempty"`
+	Token             string               `json:"token,omitempty"`
+	Signature         string               `json:"signature,omitempty"`
+	ContentID         string               `json:"contentId,omitempty"`
+	Videos            []string             `json:"videos,omitempty"`
+	Audios            []string             `json:"audios,omitempty"`
+	URLS              []*APIDataSessionURL `json:"urls,omitempty"`
+	HeartBeatLifetime uint64               `json:"heartbeatLifetime,omitempty"`
+	ContentKeyTimeout uint64               `json:"contentKeyTimeout,omitempty"`
+	Priority          float64              `json:"priority,omitempty"`
 }
 
 // APIDataAudioMetadata json mapping
 type APIDataAudioMetadata struct {
-	Bitrate      uint64 `json:"bitrate"`
-	SamplingRate uint64 `json:"	samplingRate"`
+	Bitrate      uint64 `json:"bitrate,omitempty"`
+	SamplingRate uint64 `json:"samplingRate,omitempty"`
 }
 
 // APIDataMovieAudio json mapping
 type APIDataMovieAudio struct {
-	ID          string               `json:"id"`
-	IsAvailable bool                 `json:"isAvailable"`
-	Metadata    APIDataAudioMetadata `json:"metadata"`
+	ID          string               `json:"id,omitempty"`
+	IsAvailable bool                 `json:"isAvailable,omitempty"`
+	Metadata    APIDataAudioMetadata `json:"metadata,omitempty"`
 }
 
 // APIDataVideoResolution json mapping
 type APIDataVideoResolution struct {
-	Width  uint64 `json:"width"`
-	Height uint64 `json:"height"`
+	Width  uint64 `json:"width,omitempty"`
+	Height uint64 `json:"height,omitempty"`
 }
 
 // APIDataVideoMetadata json mapping
 type APIDataVideoMetadata struct {
-	Label      string                 `json:"label"`
-	Bitrate    uint64                 `json:"bitrate"`
-	Resolution APIDataVideoResolution `json:"resolution"`
+	Label      string                 `json:"label,omitempty"`
+	Bitrate    uint64                 `json:"bitrate,omitempty"`
+	Resolution APIDataVideoResolution `json:"resolution,omitempty"`
 }
 
 // APIDataMovieVideo json mapping
 type APIDataMovieVideo struct {
-	ID          string               `json:"id"`
-	Metadata    APIDataVideoMetadata `json:"metadata"`
-	IsAvailable bool                 `json:"isAvailable"`
+	ID          string               `json:"id,omitempty"`
+	Metadata    APIDataVideoMetadata `json:"metadata,omitempty"`
+	IsAvailable bool                 `json:"isAvailable,omitempty"`
 }
 
 // APIDataMovie json mapping
 type APIDataMovie struct {
-	Audios []*APIDataMovieAudio `json:"audios"`
-	Videos []*APIDataMovieVideo `json:"videos"`
-	Sesion APIDataMovieSession  `json:"session"`
+	Audios  []*APIDataMovieAudio `json:"audios,omitempty"`
+	Videos  []*APIDataMovieVideo `json:"videos,omitempty"`
+	Session APIDataMovieSession  `json:"session,omitempty"`
 }
 
 // APIDataDelivery json mapping
 type APIDataDelivery struct {
-	Movie APIDataMovie `json:"movie"`
+	Movie APIDataMovie `json:"movie,omitempty"`
 }
 
 // APIDataMedia json mapping
 type APIDataMedia struct {
-	Delivery APIDataDelivery `json:"delivery"`
+	Delivery APIDataDelivery `json:"delivery,omitempty"`
 }
 
 // APIDataVideo json mapping
 type APIDataVideo struct {
-	Duration DurationSeconds `json:"duration"`
+	Duration DurationSeconds `json:"duration,omitempty"`
 }
 
 // APIData represents subset of data-api-data video stream information required to establish a download session
 type APIData struct {
-	Media APIDataMedia `json:"media"`
-	Video APIDataVideo `json:"video"`
+	Media   APIDataMedia `json:"media,omitempty"`
+	Video   APIDataVideo `json:"video,omitempty"`
+	Created time.Time    `json:"-"`
 }
 
 // SessionRequestClientInfo json mapping
@@ -481,10 +482,12 @@ func (client *Client) fetchAPIData(ctx context.Context, url string, reporter med
 		return nil, err
 	}
 
+	data.Created = time.Now()
+
 	return data, nil
 }
 
-func (data *APIData) listFormats() (formats []*mediaservice.Format) {
+func (data *APIData) ListFormats() (formats []*mediaservice.Format) {
 	audios := make(map[string]mediaservice.AudioFormat)
 
 	var audioIDs []string
@@ -556,7 +559,7 @@ func (client *Client) ListFormats(
 		return nil, err
 	}
 
-	return data.listFormats(), nil
+	return data.ListFormats(), nil
 }
 
 func (client *Client) createSession(
@@ -807,26 +810,41 @@ func (client *Client) reportProgress(ctx context.Context, reporter mediaservice.
 	}
 }
 
+func (client *Client) QueryFormat(
+	ctx context.Context,
+	urls, formatID string,
+	reporter mediaservice.Reporter,
+) (*APIData, error) {
+	return client.fetchAPIData(ctx, urls, reporter)
+}
+
 // SaveFormat mediaserivce.Downloader implementation
 func (client *Client) SaveFormat(
 	ctx context.Context,
 	urls, formatID, outpath string,
 	reuse bool,
+	dataraw []byte,
 	opts *mediaservice.SaveOptions,
 ) (fname string, err error) {
 	reporter := opts.GetReporter()
 
-	data, err := client.fetchAPIData(ctx, urls, reporter)
+	data := &APIData{}
+
+	_ = json.Unmarshal(dataraw, data)
+
+	if time.Since(data.Created).Seconds() >= float64(data.Media.Delivery.Movie.Session.ContentKeyTimeout) {
+		data, err = client.fetchAPIData(ctx, urls, reporter)
+		if err != nil {
+			return "", err
+		}
+	}
+
+	aformatid, vformatid, _, err := mediaservice.SelectFormat(data.ListFormats(), formatID)
 	if err != nil {
 		return "", err
 	}
 
-	aformatid, vformatid, err := mediaservice.SelectFormat(data.listFormats(), formatID)
-	if err != nil {
-		return "", err
-	}
-
-	session := data.Media.Delivery.Movie.Sesion
+	session := data.Media.Delivery.Movie.Session
 
 	sess, sessdata, err := client.createSession(ctx, &session, aformatid, vformatid)
 	if err != nil {

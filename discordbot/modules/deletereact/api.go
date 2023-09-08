@@ -4,6 +4,7 @@ package deletereact
 import (
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/eientei/jaroid/discordbot/bot"
 
@@ -53,7 +54,8 @@ func (mod *module) Configure(config *bot.Configuration, guild *discordgo.Guild) 
 			authorStmt, err := db.Preparex(`
 select
   author_id,
-  content
+  content,
+  time
 from message
 where
   content is not null and
@@ -73,13 +75,31 @@ order by id desc limit 1
 	}
 }
 
-func (mod *module) Shutdown(config *bot.Configuration) {
+func (mod *module) Shutdown(_ *bot.Configuration) {
 
+}
+
+func resolveName(member *discordgo.Member, fallback string) string {
+	name := member.Nick
+
+	if name == "" && member.User != nil {
+		name = member.User.Username
+	}
+
+	if name == "" {
+		name = fallback
+	}
+
+	return name
 }
 
 func (mod *module) handlerDelete(session *discordgo.Session, messageDelete *discordgo.MessageDelete) {
 	mod.lock.RLock()
 	defer mod.lock.RUnlock()
+
+	references, _ := mod.config.Repository.ConfigGet(messageDelete.GuildID, "deletereact", "reference")
+
+	reference, _ := time.Parse(time.RFC3339, references)
 
 	s, err := mod.config.Repository.ConfigGet(messageDelete.GuildID, "deletereact", "excluded")
 	if err != nil {
@@ -111,9 +131,15 @@ func (mod *module) handlerDelete(session *discordgo.Session, messageDelete *disc
 
 	var authorID, body string
 
-	err = db.author.QueryRow(messageDelete.ID).Scan(&authorID, &body)
+	var messageTime time.Time
+
+	err = db.author.QueryRow(messageDelete.ID).Scan(&authorID, &body, &messageTime)
 	if err != nil {
 		mod.config.Log.WithError(err).Error("Getting author ID")
+		return
+	}
+
+	if messageTime.Before(reference) {
 		return
 	}
 
@@ -123,14 +149,24 @@ func (mod *module) handlerDelete(session *discordgo.Session, messageDelete *disc
 		return
 	}
 
-	name := member.Nick
+	name := resolveName(member, messageDelete.ID)
 
-	if name == "" && member.User != nil {
-		name = member.User.Username
+	ms, err := session.GuildMembersSearch(messageDelete.GuildID, name, 100)
+	if err != nil {
+		mod.config.Log.WithError(err).Error("Getting matching member list")
+		return
 	}
 
-	if name == "" {
-		name = messageDelete.ID
+	var count int
+
+	for _, m := range ms {
+		if resolveName(m, messageDelete.ID) == name {
+			count++
+		}
+	}
+
+	if count > 1 && member.User != nil && member.User.Username != "" {
+		name = member.User.Username + "#" + name
 	}
 
 	replacer := strings.NewReplacer(
