@@ -223,7 +223,7 @@ func parseFormatSize(formatID string) (dsize uint64, wildcard bool, tgt string, 
 
 		wildcard = wildstr == "!"
 	default:
-		parts := strings.Split(formatID, "-")
+		parts := strings.Split(formatID, "--")
 
 		if len(parts) != 2 {
 			err = fmt.Errorf("%w: %s", ErrUnknownFormat, formatID)
@@ -233,28 +233,31 @@ func parseFormatSize(formatID string) (dsize uint64, wildcard bool, tgt string, 
 
 		vformat, aformat := parts[0], parts[1]
 
-		tgt = strings.TrimPrefix(vformat, "archive_") + "-" + strings.TrimPrefix(aformat, "archive_")
+		tgt = strings.TrimPrefix(vformat, "archive_") + "--" + strings.TrimPrefix(aformat, "archive_")
 	}
 
 	return
 }
 
-func findFormatSize(formats []*Format, tgt string, dsize uint64) (aformatid, vformatid string, idx int) {
+func findFormatSize(
+	formats []*Format,
+	tgt string,
+	dsize uint64,
+) (aformatid, vformatid string, idx int, size uint64, dur time.Duration) {
 	for i := len(formats) - 1; i >= 0; i-- {
 		f := formats[i]
 
 		switch {
 		case tgt != "":
 			if f.ID == tgt {
-				aformatid, vformatid = f.Audio.ID, f.Video.ID
+				aformatid, vformatid, size, dur = f.Audio.ID, f.Video.ID, f.SizeEstimate(), f.Duration
 				idx = i
 
 				return
 			}
 		default:
 			if f.SizeEstimate() < dsize {
-				aformatid, vformatid = f.Audio.ID, f.Video.ID
-
+				aformatid, vformatid, size, dur = f.Audio.ID, f.Video.ID, f.SizeEstimate(), f.Duration
 				idx = i
 
 				return
@@ -269,13 +272,13 @@ func findFormatSize(formats []*Format, tgt string, dsize uint64) (aformatid, vfo
 func SelectFormat(
 	formats []*Format,
 	formatID string,
-) (aformatid, vformatid string, idx int, err error) {
+) (aformatid, vformatid string, idx int, size uint64, dur time.Duration, err error) {
 	dsize, wildcard, tgt, err := parseFormatSize(formatID)
 	if err != nil {
 		return
 	}
 
-	aformatid, vformatid, idx = findFormatSize(formats, tgt, dsize)
+	aformatid, vformatid, idx, size, dur = findFormatSize(formats, tgt, dsize)
 
 	if tgt == "" && aformatid == "" && vformatid == "" && len(formats) > 0 {
 		f := formats[0]

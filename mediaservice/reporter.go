@@ -26,7 +26,7 @@ func (*dummyReporter) Messages() <-chan string {
 	return nil
 }
 
-func (*dummyReporter) Submit(msg string, force bool) {
+func (*dummyReporter) Submit(string, bool) {
 
 }
 

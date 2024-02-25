@@ -2,3 +2,5 @@
 *.iml
 videostreamer
 /config.yml
+docker/data/redis/appendonly.aof
+docker/data/redis/dump.rdb

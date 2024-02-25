@@ -10,7 +10,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-// New provides module instacne
+// New provides module instance
 func New() bot.Module {
 	return &module{}
 }
@@ -39,7 +39,7 @@ func (mod *module) Configure(config *bot.Configuration, guild *discordgo.Guild) 
 	}
 }
 
-func (mod *module) Shutdown(config *bot.Configuration) {
+func (mod *module) Shutdown(*bot.Configuration) {
 
 }
 
@@ -52,12 +52,12 @@ func (mod *module) renderName(r *router.Route) string {
 }
 
 func (mod *module) commandHelp(ctx *router.Context) error {
-	max := 0
+	maxname := 0
 
 	for _, v := range ctx.Route.Router.Routes {
 		name := mod.renderName(v)
-		if len(name) > max {
-			max = len(name)
+		if len(name) > maxname {
+			maxname = len(name)
 		}
 	}
 
@@ -77,7 +77,7 @@ func (mod *module) commandHelp(ctx *router.Context) error {
 
 		for _, v := range g.Routes {
 			name := mod.renderName(v)
-			_, _ = buf.WriteString(strings.Repeat(" ", max-len(name)))
+			_, _ = buf.WriteString(strings.Repeat(" ", maxname-len(name)))
 			_, _ = buf.WriteString(name)
 			_, _ = buf.WriteString(": ")
 			_, _ = buf.WriteString(v.Description)

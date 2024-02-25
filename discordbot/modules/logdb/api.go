@@ -79,7 +79,7 @@ insert into message(
 	}
 }
 
-func (mod *module) Shutdown(config *bot.Configuration) {
+func (mod *module) Shutdown(*bot.Configuration) {
 	mod.lock.Lock()
 	defer mod.lock.Unlock()
 
@@ -88,7 +88,7 @@ func (mod *module) Shutdown(config *bot.Configuration) {
 	}
 }
 
-func (mod *module) handlerLogCreate(session *discordgo.Session, messageCreate *discordgo.MessageCreate) {
+func (mod *module) handlerLogCreate(_ *discordgo.Session, messageCreate *discordgo.MessageCreate) {
 	mod.lock.RLock()
 	defer mod.lock.RUnlock()
 
@@ -137,7 +137,7 @@ func (mod *module) handlerLogEdit(session *discordgo.Session, messageUpdate *dis
 	}
 }
 
-func (mod *module) handlerLogDelete(session *discordgo.Session, messageDelete *discordgo.MessageDelete) {
+func (mod *module) handlerLogDelete(_ *discordgo.Session, messageDelete *discordgo.MessageDelete) {
 	mod.lock.RLock()
 	defer mod.lock.RUnlock()
 

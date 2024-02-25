@@ -10,7 +10,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/eientei/jaroid/discordbot/bot"
 	"github.com/eientei/jaroid/discordbot/router"
-	colorful "github.com/lucasb-eyer/go-colorful"
+	"github.com/lucasb-eyer/go-colorful"
 )
 
 var (
@@ -45,7 +45,7 @@ func (mod *module) Initialize(config *bot.Configuration) error {
 	return nil
 }
 
-func (mod *module) RolesChanged(guildID, userID string, added, removed []string) {
+func (mod *module) RolesChanged(guildID, _ string, added, removed []string) {
 	guild, ok := mod.servers[guildID]
 	if !ok {
 		return
@@ -106,7 +106,7 @@ func (mod *module) Configure(config *bot.Configuration, guild *discordgo.Guild) 
 	}
 }
 
-func (mod *module) Shutdown(config *bot.Configuration) {
+func (mod *module) Shutdown(*bot.Configuration) {
 
 }
 
@@ -210,11 +210,11 @@ func (mod *module) commandSet(ctx *router.Context) error {
 
 	lightnessMin, err := mod.config.Repository.ConfigGet(ctx.Message.GuildID, "color", "lightness.min")
 	if err == nil && lightnessMin != "" {
-		var min int64
+		var mincolor int64
 
-		if min, err = strconv.ParseInt(lightnessMin, 10, 64); err == nil {
-			if lightness < min {
-				return fmt.Errorf("lightness is less than minimal value: %d", min)
+		if mincolor, err = strconv.ParseInt(lightnessMin, 10, 64); err == nil {
+			if lightness < mincolor {
+				return fmt.Errorf("lightness is less than minimal value: %d", mincolor)
 			}
 		}
 	}

@@ -4,11 +4,14 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
+	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"html"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/url"
 	"os"
@@ -18,6 +21,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Eyevinn/mp4ff/bits"
+	"github.com/Eyevinn/mp4ff/mp4"
 	"github.com/eientei/jaroid/mediaservice"
 )
 
@@ -104,9 +109,29 @@ type APIDataAudioMetadata struct {
 
 // APIDataMovieAudio json mapping
 type APIDataMovieAudio struct {
-	ID          string               `json:"id,omitempty"`
-	IsAvailable bool                 `json:"isAvailable,omitempty"`
-	Metadata    APIDataAudioMetadata `json:"metadata,omitempty"`
+	ID           string               `json:"id,omitempty"`
+	Metadata     APIDataAudioMetadata `json:"metadata,omitempty"`
+	Bitrate      uint64               `json:"bitrate,omitempty"`
+	SamplingRate uint64               `json:"samplingRate,omitempty"`
+	IsAvailable  bool                 `json:"isAvailable,omitempty"`
+}
+
+// GetBitrate resolver
+func (a *APIDataMovieAudio) GetBitrate() uint64 {
+	if a.Bitrate != 0 {
+		return a.Bitrate
+	}
+
+	return a.Metadata.Bitrate
+}
+
+// GetSamplingRate resolver
+func (a *APIDataMovieAudio) GetSamplingRate() uint64 {
+	if a.SamplingRate != 0 {
+		return a.SamplingRate
+	}
+
+	return a.Metadata.SamplingRate
 }
 
 // APIDataVideoResolution json mapping
@@ -127,6 +152,36 @@ type APIDataMovieVideo struct {
 	ID          string               `json:"id,omitempty"`
 	Metadata    APIDataVideoMetadata `json:"metadata,omitempty"`
 	IsAvailable bool                 `json:"isAvailable,omitempty"`
+	Bitrate     uint64               `json:"bitrate,omitempty"`
+	Width       uint64               `json:"width,omitempty"`
+	Height      uint64               `json:"height,omitempty"`
+}
+
+// GetBitrate resolver
+func (a *APIDataMovieVideo) GetBitrate() uint64 {
+	if a.Bitrate != 0 {
+		return a.Bitrate
+	}
+
+	return a.Metadata.Bitrate
+}
+
+// GetWidth resolver
+func (a *APIDataMovieVideo) GetWidth() uint64 {
+	if a.Width != 0 {
+		return a.Width
+	}
+
+	return a.Metadata.Resolution.Width
+}
+
+// GetHeight resolver
+func (a *APIDataMovieVideo) GetHeight() uint64 {
+	if a.Height != 0 {
+		return a.Height
+	}
+
+	return a.Metadata.Resolution.Height
 }
 
 // APIDataMovie json mapping
@@ -141,9 +196,41 @@ type APIDataDelivery struct {
 	Movie APIDataMovie `json:"movie,omitempty"`
 }
 
+// APIDataDemand json mapping
+type APIDataDemand struct {
+	AccessRightKey string               `json:"accessRightKey,omitempty"`
+	Audios         []*APIDataMovieAudio `json:"audios,omitempty"`
+	Videos         []*APIDataMovieVideo `json:"videos,omitempty"`
+}
+
+// APIClient json mapping
+type APIClient struct {
+	WatchID      string `json:"watchId,omitempty"`
+	WatchTrackID string `json:"watchTrackId,omitempty"`
+}
+
 // APIDataMedia json mapping
 type APIDataMedia struct {
+	Domand   APIDataDemand   `json:"domand,omitempty"`
 	Delivery APIDataDelivery `json:"delivery,omitempty"`
+}
+
+// Audios resolver
+func (media *APIDataMedia) Audios() []*APIDataMovieAudio {
+	if len(media.Domand.Videos) > 0 {
+		return media.Domand.Audios
+	}
+
+	return media.Delivery.Movie.Audios
+}
+
+// Videos resolver
+func (media *APIDataMedia) Videos() []*APIDataMovieVideo {
+	if len(media.Domand.Videos) > 0 {
+		return media.Domand.Videos
+	}
+
+	return media.Delivery.Movie.Videos
 }
 
 // APIDataVideo json mapping
@@ -153,9 +240,10 @@ type APIDataVideo struct {
 
 // APIData represents subset of data-api-data video stream information required to establish a download session
 type APIData struct {
+	Created time.Time    `json:"-"`
+	Client  APIClient    `json:"client,omitempty"`
 	Media   APIDataMedia `json:"media,omitempty"`
 	Video   APIDataVideo `json:"video,omitempty"`
-	Created time.Time    `json:"-"`
 }
 
 // SessionRequestClientInfo json mapping
@@ -309,7 +397,7 @@ func (client *Client) getPage(ctx context.Context, url string) ([]byte, error) {
 		_ = resp.Body.Close()
 	}()
 
-	return ioutil.ReadAll(resp.Body)
+	return io.ReadAll(resp.Body)
 }
 
 func (client *Client) postPage(ctx context.Context, url string, body io.Reader, h http.Header) ([]byte, error) {
@@ -322,7 +410,7 @@ func (client *Client) postPage(ctx context.Context, url string, body io.Reader, 
 		_ = resp.Body.Close()
 	}()
 
-	return ioutil.ReadAll(resp.Body)
+	return io.ReadAll(resp.Body)
 }
 
 func (client *Client) fetchInitPage(ctx context.Context, url string, reporter mediaservice.Reporter) ([]byte, error) {
@@ -380,7 +468,7 @@ func (client *Client) auth(reporter mediaservice.Reporter) (bool, error) {
 		return false, fmt.Errorf("invalid credentials")
 	}
 
-	bs, err := ioutil.ReadAll(resp.Body)
+	bs, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return false, err
 	}
@@ -487,12 +575,13 @@ func (client *Client) fetchAPIData(ctx context.Context, url string, reporter med
 	return data, nil
 }
 
+// ListFormats returns available media format list for api response
 func (data *APIData) ListFormats() (formats []*mediaservice.Format) {
 	audios := make(map[string]mediaservice.AudioFormat)
 
 	var audioIDs []string
 
-	for _, a := range data.Media.Delivery.Movie.Audios {
+	for _, a := range data.Media.Audios() {
 		if !a.IsAvailable {
 			continue
 		}
@@ -500,8 +589,8 @@ func (data *APIData) ListFormats() (formats []*mediaservice.Format) {
 		audios[a.ID] = mediaservice.AudioFormat{
 			ID:         a.ID,
 			Codec:      mediaservice.AudioCodecAAC,
-			Bitrate:    a.Metadata.Bitrate,
-			Samplerate: a.Metadata.SamplingRate,
+			Bitrate:    a.GetBitrate(),
+			Samplerate: a.GetSamplingRate(),
 		}
 
 		audioIDs = append(audioIDs, a.ID)
@@ -511,7 +600,7 @@ func (data *APIData) ListFormats() (formats []*mediaservice.Format) {
 
 	var videoIDs []string
 
-	for _, v := range data.Media.Delivery.Movie.Videos {
+	for _, v := range data.Media.Videos() {
 		if !v.IsAvailable {
 			continue
 		}
@@ -519,9 +608,9 @@ func (data *APIData) ListFormats() (formats []*mediaservice.Format) {
 		videos[v.ID] = mediaservice.VideoFormat{
 			ID:      v.ID,
 			Codec:   mediaservice.VideoCodecH264,
-			Bitrate: v.Metadata.Bitrate,
-			Width:   v.Metadata.Resolution.Width,
-			Height:  v.Metadata.Resolution.Height,
+			Bitrate: v.GetBitrate(),
+			Width:   v.GetWidth(),
+			Height:  v.GetHeight(),
 		}
 
 		videoIDs = append(videoIDs, v.ID)
@@ -530,7 +619,7 @@ func (data *APIData) ListFormats() (formats []*mediaservice.Format) {
 	for _, v := range videoIDs {
 		for _, a := range audioIDs {
 			formats = append(formats, &mediaservice.Format{
-				ID:        strings.TrimPrefix(v, "archive_") + "-" + strings.TrimPrefix(a, "archive_"),
+				ID:        strings.TrimPrefix(v, "archive_") + "--" + strings.TrimPrefix(a, "archive_"),
 				Container: mediaservice.ContainerMP4,
 				Audio:     audios[a],
 				Video:     videos[v],
@@ -542,6 +631,7 @@ func (data *APIData) ListFormats() (formats []*mediaservice.Format) {
 	sort.Slice(formats, func(i, j int) bool {
 		fi := formats[i]
 		fj := formats[j]
+
 		return fi.Video.Bitrate+fi.Audio.Bitrate < fj.Video.Bitrate+fj.Audio.Bitrate
 	})
 
@@ -786,6 +876,10 @@ func (client *Client) reportProgress(ctx context.Context, reporter mediaservice.
 
 			percent := float64(finfo.Size()) / float64(total) * 100
 
+			if percent > 100 {
+				percent = 100
+			}
+
 			speed := mediaservice.HumanSizeFormat(float64(diffsize))
 
 			rem := total - finfo.Size()
@@ -810,12 +904,596 @@ func (client *Client) reportProgress(ctx context.Context, reporter mediaservice.
 	}
 }
 
+// QueryFormat returns API response with available media data formats
 func (client *Client) QueryFormat(
 	ctx context.Context,
-	urls, formatID string,
+	urls, _ string,
 	reporter mediaservice.Reporter,
 ) (*APIData, error) {
 	return client.fetchAPIData(ctx, urls, reporter)
+}
+
+type contentStream int
+
+const (
+	contentStreamAudio = 1
+	contentStreamVideo = 2
+)
+
+type streamChunk struct {
+	err    error
+	done   chan struct{}
+	block  cipher.Block
+	url    string
+	iv     []byte
+	data   []byte
+	stream contentStream
+	idx    int
+	init   bool
+}
+
+type contentChunk struct {
+	audio *streamChunk
+	video *streamChunk
+}
+
+var (
+	regexpURL              = regexp.MustCompile(`URI="([^"]*)`)
+	regexpAverageBandwidth = regexp.MustCompile(`AVERAGE-BANDWIDTH=([^",]*)`)
+	regexpIV               = regexp.MustCompile(`IV=0x([^",]*)`)
+)
+
+func (client *Client) parseM3U8AES(ctx context.Context, contents []*streamChunk, ivs, key string) (err error) {
+	var iv []byte
+
+	iv, err = hex.DecodeString(ivs)
+	if err != nil {
+		return
+	}
+
+	keybs, err := client.getPage(ctx, key)
+	if err != nil {
+		return
+	}
+
+	var block cipher.Block
+
+	block, err = aes.NewCipher(keybs)
+	if err != nil {
+		return
+	}
+
+	for _, c := range contents {
+		if !c.init {
+			c.iv = iv
+			c.block = block
+		}
+	}
+
+	return
+}
+
+func matchM3U8(s string, regex *regexp.Regexp) (res string, ok bool) {
+	parts := regex.FindAllStringSubmatch(s, -1)
+	if len(parts) > 0 && len(parts[0]) == 2 {
+		return parts[0][1], true
+	}
+
+	return "", false
+}
+
+func (client *Client) parseStreamM3U8(
+	ctx context.Context,
+	stream contentStream,
+	page string,
+) (contents []*streamChunk, err error) {
+	data, err := client.getPage(ctx, page)
+	if err != nil {
+		return
+	}
+
+	reader := bufio.NewReader(bytes.NewReader(data))
+
+	var line, key, ivs string
+
+	for {
+		line, err = reader.ReadString('\n')
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+		}
+
+		line = strings.TrimSpace(strings.TrimSuffix(line, "\n"))
+
+		switch {
+		case strings.HasPrefix(line, "#EXT-X-MAP"):
+			if res, ok := matchM3U8(line, regexpURL); ok {
+				contents = append(
+					contents,
+					&streamChunk{url: res, stream: stream, init: true, idx: len(contents)},
+				)
+			}
+		case strings.HasPrefix(line, "#EXT-X-KEY"):
+			if res, ok := matchM3U8(line, regexpURL); ok {
+				key = res
+			}
+
+			if res, ok := matchM3U8(line, regexpIV); ok {
+				ivs = res
+			}
+		case !strings.HasPrefix(line, "#") && line != "":
+			contents = append(
+				contents,
+				&streamChunk{url: line, stream: stream, init: false, idx: len(contents)},
+			)
+		}
+	}
+
+	err = client.parseM3U8AES(ctx, contents, ivs, key)
+
+	return
+}
+
+func combineInitSegments(files [][]byte, w io.Writer) (err error) {
+	var combinedInit *mp4.InitSegment
+
+	for i, data := range files {
+		var f *mp4.File
+
+		f, err = mp4.DecodeFileSR(bits.NewFixedSliceReader(data))
+		if err != nil {
+			err = fmt.Errorf("failed to decode init segment: %w", err)
+
+			return
+		}
+
+		init := f.Init
+		if len(init.Moov.Traks) != 1 {
+			err = fmt.Errorf("expected exactly one track per init file")
+
+			return
+		}
+
+		init.Moov.Trak.Tkhd.TrackID = uint32(i + 1)
+		if init.Moov.Mvex != nil && init.Moov.Mvex.Trex != nil {
+			init.Moov.Mvex.Trex.TrackID = uint32(i + 1)
+		}
+
+		if i == 0 {
+			combinedInit = init
+
+			continue
+		}
+
+		combinedInit.Moov.AddChild(init.Moov.Trak)
+
+		if init.Moov.Mvex != nil {
+			if init.Moov.Mvex.Trex != nil {
+				combinedInit.Moov.Mvex.AddChild(init.Moov.Mvex.Trex)
+			}
+
+			if init.Moov.Mvex.Mehd != nil {
+				combinedInit.Moov.Mvex.AddChild(init.Moov.Mvex.Mehd)
+			}
+		}
+	}
+
+	return combinedInit.Encode(w)
+}
+
+func combineMediaSegments(files [][]byte, w io.WriteCloser) error {
+	var idx []uint32
+
+	for i := 0; i < len(files); i++ {
+		idx = append(idx, uint32(i+1))
+	}
+
+	var (
+		combinedSeg *mp4.MediaSegment
+		outFrag     *mp4.Fragment
+	)
+
+	for i, data := range files {
+		f, err := mp4.DecodeFileSR(bits.NewFixedSliceReader(data))
+		if err != nil {
+			return fmt.Errorf("failed to decode media segment: %w", err)
+		}
+
+		if len(f.Segments) != 1 {
+			return fmt.Errorf("expected exactly one media segment per file")
+		}
+
+		seg := f.Segments[0]
+
+		if i == 0 {
+			if seg.Styp != nil {
+				combinedSeg = mp4.NewMediaSegmentWithStyp(seg.Styp)
+			} else {
+				combinedSeg = mp4.NewMediaSegmentWithoutStyp()
+			}
+		}
+
+		if len(seg.Fragments) != 1 {
+			return fmt.Errorf("expected exactly one fragment per media segment")
+		}
+
+		frag := seg.Fragments[0]
+
+		if len(frag.Moof.Trafs) != 1 {
+			return fmt.Errorf("expected exactly one traf per fragment")
+		}
+
+		if i == 0 {
+			seqNr := frag.Moof.Mfhd.SequenceNumber
+
+			outFrag, err = mp4.CreateMultiTrackFragment(seqNr, idx)
+			if err != nil {
+				return fmt.Errorf("failed to create fragment: %w", err)
+			}
+
+			combinedSeg.AddFragment(outFrag)
+		}
+
+		fss, err := frag.GetFullSamples(nil)
+		if err != nil {
+			return fmt.Errorf("failed to get full samples: %w", err)
+		}
+
+		for _, fs := range fss {
+			err = outFrag.AddFullSampleToTrack(fs, uint32(i+1))
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return combinedSeg.Encode(w)
+}
+
+func (client *Client) downloadDMSExtractPlaylistsParseM3U8(
+	respbs []byte,
+) (audio, video string, bandwidth int64, err error) {
+	var line string
+
+	reader := bufio.NewReader(bytes.NewReader(respbs))
+
+	for {
+		line, err = reader.ReadString('\n')
+		if err != nil {
+			if err == io.EOF {
+				err = nil
+
+				break
+			}
+		}
+
+		line = strings.TrimSpace(strings.TrimSuffix(line, "\n"))
+
+		switch {
+		case strings.HasPrefix(line, "#EXT-X-MEDIA:TYPE=AUDIO"):
+			if res, ok := matchM3U8(line, regexpURL); ok {
+				audio = res
+			}
+		case strings.HasPrefix(line, "#EXT-X-STREAM-INF"):
+			if res, ok := matchM3U8(line, regexpAverageBandwidth); ok {
+				bandwidth, err = strconv.ParseInt(res, 10, 64)
+				if err != nil {
+					return
+				}
+			}
+		case !strings.HasPrefix(line, "#") && line != "":
+			video = strings.TrimSuffix(line, "\n")
+		}
+	}
+
+	return
+}
+
+func (client *Client) downloadDMSExtractPlaylists(
+	ctx context.Context,
+	data *APIData,
+	aformatid, vformatid string,
+) (audio, video string, bandwidth int64, err error) {
+	nvapi := fmt.Sprintf(
+		"https://nvapi.nicovideo.jp/v1/watch/%s/access-rights/hls?actionTrackId=%s",
+		data.Client.WatchID,
+		data.Client.WatchTrackID,
+	)
+
+	var sessiondata []byte
+
+	sessiondata, err = json.Marshal(map[string]interface{}{
+		"outputs": []interface{}{
+			[]string{vformatid, aformatid},
+		},
+	})
+	if err != nil {
+		return
+	}
+
+	var respbs []byte
+
+	var resp struct {
+		Data struct {
+			ContentURL string `json:"contentUrl"`
+		} `json:"data"`
+	}
+
+	respbs, err = client.postPage(ctx, nvapi, bytes.NewReader(sessiondata), http.Header{
+		"accept-encoding":    []string{"br"},
+		"content-type":       []string{"application/json"},
+		"x-request-with":     []string{"https://www.nicovideo.jp"},
+		"x-access-right-key": []string{data.Media.Domand.AccessRightKey},
+		"x-frontend-id":      []string{"6"},
+		"x-frontend-version": []string{"0"},
+	})
+	if err != nil {
+		return
+	}
+
+	err = json.Unmarshal(respbs, &resp)
+	if err != nil {
+		return
+	}
+
+	respbs, err = client.getPage(ctx, resp.Data.ContentURL)
+	if err != nil {
+		return
+	}
+
+	return client.downloadDMSExtractPlaylistsParseM3U8(respbs)
+}
+
+func (client *Client) downloadDMSWorker(ctx context.Context, work chan *streamChunk) {
+	for {
+		select {
+		case stream, ok := <-work:
+			if !ok {
+				return
+			}
+
+			respbs, err := client.getPage(ctx, stream.url)
+			if err != nil {
+				stream.err = err
+
+				close(stream.done)
+
+				continue
+			}
+
+			if stream.block != nil {
+				cbc := cipher.NewCBCDecrypter(stream.block, stream.iv)
+				cbc.CryptBlocks(respbs, respbs)
+
+				length := len(respbs)
+				unpadding := int(respbs[length-1])
+				respbs = respbs[:(length - unpadding)]
+			}
+
+			stream.data = respbs
+
+			close(stream.done)
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+func (client *Client) downloadDMSResumeIndex(f *os.File, idxbs []byte, magic uint64) (idx int) {
+	siz, err := f.Seek(0, io.SeekEnd)
+	if err != nil {
+		return
+	}
+
+	if int(siz) > len(idxbs) {
+		_, err = f.Seek(-int64(len(idxbs)), io.SeekEnd)
+		if err != nil {
+			return
+		}
+
+		_, err = io.ReadFull(f, idxbs)
+		if err != nil {
+			return
+		}
+
+		valid := binary.BigEndian.Uint64(idxbs[:len(idxbs)-8])
+		if valid == magic {
+			idx = int(binary.BigEndian.Uint64(idxbs[len(idxbs)-8:])) + 1
+		} else {
+			_, err = f.Seek(0, io.SeekStart)
+			if err != nil {
+				return
+			}
+		}
+	}
+
+	binary.BigEndian.PutUint64(idxbs[:8], magic)
+
+	return
+}
+
+func (client *Client) downloadDMS(
+	ctx context.Context,
+	f *os.File,
+	data *APIData,
+	aformatid, vformatid string,
+	dur time.Duration,
+	reporter mediaservice.Reporter,
+) (err error) {
+	var contentChunks []*contentChunk
+
+	var audioChunks, videoChunks []*streamChunk
+
+	audio, video, bandwidth, err := client.downloadDMSExtractPlaylists(ctx, data, aformatid, vformatid)
+	if err != nil {
+		return err
+	}
+
+	audioChunks, err = client.parseStreamM3U8(ctx, contentStreamAudio, audio)
+	if err != nil {
+		return err
+	}
+
+	videoChunks, err = client.parseStreamM3U8(ctx, contentStreamVideo, video)
+	if err != nil {
+		return err
+	}
+
+	if len(audioChunks) != len(videoChunks) {
+		return fmt.Errorf(
+			"uneven audi/video streams: %d != %d",
+			len(audioChunks),
+			len(videoChunks),
+		)
+	}
+
+	for i := 0; i < len(audioChunks); i++ {
+		contentChunks = append(contentChunks, &contentChunk{
+			audio: audioChunks[i],
+			video: videoChunks[i],
+		})
+	}
+
+	work := make(chan *streamChunk, 2)
+
+	defer close(work)
+
+	for i := 0; i < 2; i++ {
+		go client.downloadDMSWorker(ctx, work)
+	}
+
+	go client.reportProgress(ctx, reporter, f, bandwidth*int64(dur.Seconds())/8)
+
+	idxbs := make([]byte, 16)
+
+	off := int64(len(idxbs))
+
+	const jaroid = 0x00006a61726f6964
+
+	idx := client.downloadDMSResumeIndex(f, idxbs, jaroid)
+
+	var writes bool
+
+	for ; idx < len(contentChunks); idx++ {
+		chunk := contentChunks[idx]
+
+		if idx > 0 {
+			_, err = f.Seek(-off, io.SeekEnd)
+			if err != nil {
+				return
+			}
+		}
+
+		chunk.audio.done = make(chan struct{})
+		chunk.video.done = make(chan struct{})
+
+		work <- chunk.audio
+		work <- chunk.video
+
+		<-chunk.audio.done
+		<-chunk.video.done
+
+		if chunk.audio.err != nil {
+			return err
+		}
+
+		if chunk.video.err != nil {
+			return err
+		}
+
+		if chunk.audio.init {
+			err = combineInitSegments([][]byte{chunk.audio.data, chunk.video.data}, f)
+		} else {
+			err = combineMediaSegments([][]byte{chunk.audio.data, chunk.video.data}, f)
+		}
+
+		if err != nil {
+			return err
+		}
+
+		binary.BigEndian.PutUint64(idxbs[off-8:], uint64(idx))
+
+		_, err = f.Write(idxbs)
+		if err != nil {
+			return err
+		}
+
+		writes = true
+	}
+
+	if writes {
+		var pos int64
+
+		pos, err = f.Seek(-off, io.SeekEnd)
+		if err != nil {
+			return err
+		}
+
+		err = f.Truncate(pos)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (client *Client) downloadDMC(
+	ctx context.Context,
+	f *os.File,
+	data *APIData,
+	aformatid, vformatid string,
+	reporter mediaservice.Reporter,
+) (err error) {
+	var (
+		session  APIDataMovieSession
+		sess     SessionResponse
+		sessdata SessionResponseData
+	)
+
+	session = data.Media.Delivery.Movie.Session
+
+	sess, sessdata, err = client.createSession(ctx, &session, aformatid, vformatid)
+	if err != nil {
+		return err
+	}
+
+	siz, err := f.Seek(0, io.SeekEnd)
+	if err != nil {
+		return err
+	}
+
+	resp, err := client.methodPage(ctx, sessdata.Session.ContentURI, http.MethodGet, nil, http.Header{
+		"range": []string{fmt.Sprintf("bytes=%d-", siz)},
+	})
+	if err != nil {
+		return err
+	}
+
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	cl, err := extractContentsRange(resp)
+	if err != nil {
+		return err
+	}
+
+	go client.keepalive(ctx, reporter, &session, &sess, &sessdata)
+
+	if cl == siz {
+		return nil
+	}
+
+	go client.reportProgress(ctx, reporter, f, cl)
+
+	_, err = io.Copy(f, resp.Body)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // SaveFormat mediaserivce.Downloader implementation
@@ -839,23 +1517,12 @@ func (client *Client) SaveFormat(
 		}
 	}
 
-	aformatid, vformatid, _, err := mediaservice.SelectFormat(data.ListFormats(), formatID)
+	aformatid, vformatid, _, _, dur, err := mediaservice.SelectFormat(data.ListFormats(), formatID)
 	if err != nil {
 		return "", err
 	}
 
-	session := data.Media.Delivery.Movie.Session
-
-	sess, sessdata, err := client.createSession(ctx, &session, aformatid, vformatid)
-	if err != nil {
-		return "", err
-	}
-
-	cctx, cancel := context.WithCancel(ctx)
-
-	defer cancel()
-
-	fmtname := strings.TrimPrefix(vformatid, "archive_") + "-" + strings.TrimPrefix(aformatid, "archive_")
+	fmtname := strings.TrimPrefix(vformatid, "archive_") + "--" + strings.TrimPrefix(aformatid, "archive_")
 
 	outpath = strings.ReplaceAll(outpath, "${fmt}", fmtname)
 
@@ -884,41 +1551,19 @@ func (client *Client) SaveFormat(
 		return "", err
 	}
 
-	finfo, err := f.Stat()
-	if err != nil {
-		return "", err
+	cctx, cancel := context.WithCancel(ctx)
+
+	defer cancel()
+
+	switch {
+	case data.Media.Domand.AccessRightKey != "":
+		err = client.downloadDMS(cctx, f, data, aformatid, vformatid, dur, reporter)
+	case len(data.Media.Delivery.Movie.Session.URLS) > 0:
+		err = client.downloadDMC(cctx, f, data, aformatid, vformatid, reporter)
+	default:
+		err = fmt.Errorf("unknown content delivery method")
 	}
 
-	_, err = f.Seek(0, io.SeekEnd)
-	if err != nil {
-		return "", err
-	}
-
-	resp, err := client.methodPage(ctx, sessdata.Session.ContentURI, http.MethodGet, nil, http.Header{
-		"range": []string{fmt.Sprintf("bytes=%d-", finfo.Size())},
-	})
-	if err != nil {
-		return "", err
-	}
-
-	defer func() {
-		_ = resp.Body.Close()
-	}()
-
-	cl, err := extractContentsRange(resp)
-	if err != nil {
-		return "", err
-	}
-
-	go client.keepalive(cctx, reporter, &session, &sess, &sessdata)
-
-	if cl == finfo.Size() {
-		return outpath, nil
-	}
-
-	go client.reportProgress(cctx, reporter, f, cl)
-
-	_, err = io.Copy(f, resp.Body)
 	if err != nil {
 		return "", err
 	}

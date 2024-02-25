@@ -51,7 +51,7 @@ func (mod *module) Configure(config *bot.Configuration, guild *discordgo.Guild) 
 	mod.cleanupDelay[guild.ID] = time.Duration(v)
 }
 
-func (mod *module) Shutdown(config *bot.Configuration) {
+func (mod *module) Shutdown(*bot.Configuration) {
 
 }
 

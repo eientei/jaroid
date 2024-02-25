@@ -44,11 +44,11 @@ func (mod *module) Initialize(config *bot.Configuration) error {
 	return nil
 }
 
-func (mod *module) Configure(config *bot.Configuration, guild *discordgo.Guild) {
+func (mod *module) Configure(*bot.Configuration, *discordgo.Guild) {
 
 }
 
-func (mod *module) Shutdown(config *bot.Configuration) {
+func (mod *module) Shutdown(*bot.Configuration) {
 
 }
 
@@ -120,7 +120,7 @@ func (mod *module) configList(ctx *router.Context) error {
 		return err
 	}
 
-	max := 0
+	maxlen := 0
 
 	for _, s := range slice {
 		if !strings.HasPrefix(s, prefix) {
@@ -130,8 +130,8 @@ func (mod *module) configList(ctx *router.Context) error {
 		s = strings.TrimPrefix(s, prefix)
 		l := len(s)
 
-		if l > max {
-			max = l
+		if l > maxlen {
+			maxlen = l
 		}
 	}
 
@@ -147,7 +147,7 @@ func (mod *module) configList(ctx *router.Context) error {
 		}
 
 		s = strings.TrimPrefix(s, prefix)
-		_, _ = buf.WriteString(strings.Repeat(" ", max-len(s)))
+		_, _ = buf.WriteString(strings.Repeat(" ", maxlen-len(s)))
 		_, _ = buf.WriteString(s)
 		_, _ = buf.WriteString(": ")
 
@@ -177,11 +177,11 @@ func (mod *module) configTasks(ctx *router.Context) error {
 		return err
 	}
 
-	max := 0
+	maxlen := 0
 
 	for _, s := range slice {
-		if len(s) > max {
-			max = len(s)
+		if len(s) > maxlen {
+			maxlen = len(s)
 		}
 	}
 
@@ -190,7 +190,7 @@ func (mod *module) configTasks(ctx *router.Context) error {
 	buf.WriteString("```\n")
 
 	for _, s := range slice {
-		_, _ = buf.WriteString(strings.Repeat(" ", max-len(s)))
+		_, _ = buf.WriteString(strings.Repeat(" ", maxlen-len(s)))
 		_, _ = buf.WriteString(s)
 		_, _ = buf.WriteString(": ")
 

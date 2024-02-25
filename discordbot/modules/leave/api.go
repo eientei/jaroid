@@ -32,10 +32,10 @@ func (mod *module) Initialize(config *bot.Configuration) error {
 	return nil
 }
 
-func (mod *module) Configure(config *bot.Configuration, guild *discordgo.Guild) {
+func (mod *module) Configure(*bot.Configuration, *discordgo.Guild) {
 }
 
-func (mod *module) Shutdown(config *bot.Configuration) {
+func (mod *module) Shutdown(*bot.Configuration) {
 
 }
 

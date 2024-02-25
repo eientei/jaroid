@@ -7,9 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/eientei/jaroid/mediaservice"
-	"github.com/eientei/jaroid/nicopost"
-	"github.com/go-redis/redis/v7"
 	"net/url"
 	"path"
 	"regexp"
@@ -23,6 +20,9 @@ import (
 	"github.com/eientei/jaroid/discordbot/modules/auth"
 	"github.com/eientei/jaroid/discordbot/router"
 	"github.com/eientei/jaroid/integration/nicovideo"
+	"github.com/eientei/jaroid/mediaservice"
+	"github.com/eientei/jaroid/nicopost"
+	"github.com/go-redis/redis/v7"
 	"github.com/sirupsen/logrus"
 )
 
@@ -119,7 +119,7 @@ func (mod *module) Configure(config *bot.Configuration, guild *discordgo.Guild) 
 	mod.servers[guild.ID] = s
 }
 
-func (mod *module) Shutdown(config *bot.Configuration) {
+func (mod *module) Shutdown(*bot.Configuration) {
 
 }
 
@@ -311,6 +311,26 @@ func (mod *module) commandDownload(ctx *router.Context) error {
 		return ErrInvalidURL
 	}
 
+	channels, _ := mod.config.Repository.ConfigGet(ctx.Message.GuildID, "nico", "channels")
+
+	if len(channels) > 0 {
+		cs := strings.Split(channels, ",")
+
+		var found bool
+
+		for _, ch := range cs {
+			if ch == ctx.Message.ChannelID {
+				found = true
+
+				break
+			}
+		}
+
+		if !found {
+			return fmt.Errorf("please do it at <#%s>", cs[0])
+		}
+	}
+
 	msg, err := ctx.Reply("Starting download...")
 	if err != nil {
 		return err
@@ -347,7 +367,7 @@ func (mod *module) commandDownload(ctx *router.Context) error {
 
 	formats := apidata.ListFormats()
 
-	_, _, idx, err := mediaservice.SelectFormat(formats, format)
+	_, _, idx, _, _, err := mediaservice.SelectFormat(formats, format)
 	if err != nil {
 		return err
 	}
@@ -654,7 +674,7 @@ func (mod *module) handlerReactionAddDownload(
 
 	formats := apidata.ListFormats()
 
-	_, _, idx, err := mediaservice.SelectFormat(formats, parts[2])
+	_, _, idx, _, _, err := mediaservice.SelectFormat(formats, parts[2])
 	if err != nil {
 		return
 	}
@@ -874,7 +894,12 @@ func (mod *module) commandList(ctx *router.Context) error {
 	return err
 }
 
-const nicoCommandHelp = "```yaml\n" + `
+const (
+	backticks = "```"
+	yaml      = backticks + "yaml\n"
+)
+
+const nicoCommandHelp = yaml + `
 >>> nico.download <url> [format code | list] 
 >>> nico.download <url> [size[!] | inf] 
 
@@ -905,9 +930,9 @@ example:
 example:
 # download video with maximum est.size
 > nico.download https://www.nicovideo.jp/watch/sm00 inf
-` + "```"
+` + backticks
 
-const nicoFilterHelp = "```yaml\n" + `
+const nicoFilterHelp = yaml + `
 >>> nico.search <filters>
 
 Search for videos using given filters and sortings
@@ -961,9 +986,9 @@ default:
 
 # used if none of sorts or targets are spceified
 > %title %tags %description -viewCounter
-` + "```\nsee https://site.nicovideo.jp/search-api-docs/search.html"
+` + backticks + "\nsee https://site.nicovideo.jp/search-api-docs/search.html"
 
-const nicoFilterHelpExamples = "```yaml\n" + `
+const nicoFilterHelpExamples = yaml + `
 example:
 # search "cookie" at title only
 > cookie %title
@@ -983,7 +1008,7 @@ example:
 # having view count > 100
 # and sort by descending view count
 > cookie $viewCounter=>100 -viewCounter
-` + "```"
+` + backticks
 
 func (mod *module) commandHelp(ctx *router.Context) error {
 	err := ctx.ReplyEmbed(nicoCommandHelp)

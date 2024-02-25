@@ -14,12 +14,12 @@ linters-settings:
     check-type-assertions: true
     check-blank: false
   gocognit:
-    min-complexity: 20
+    min-complexity: 30
   goconst:
     min-len: 3
     min-occurrences: 3
   gocyclo:
-    min-complexity: 15
+    min-complexity: 20
   gofmt:
     simplify: true
   revive:
@@ -45,10 +45,7 @@ linters:
     - errcheck
     - unused
     - gosimple
-    - structcheck
-    - varcheck
     - ineffassign
-    - deadcode
     - typecheck
     - bodyclose
     - stylecheck

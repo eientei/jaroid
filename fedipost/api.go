@@ -30,7 +30,7 @@ func (c *Config) UserAgentValue() string {
 }
 
 // Exchange http request for http response
-func (c *Config) Exchange(r *http.Request, auth bool) (*http.Response, error) {
+func (c *Config) Exchange(r *http.Request, _ bool) (*http.Response, error) {
 	client := c.HTTPClient
 
 	if client == nil {

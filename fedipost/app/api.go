@@ -213,7 +213,7 @@ func (f *Fedipost) ensureClient(
 }
 
 func (f *Fedipost) login(ctx context.Context, uri, login, redirect string) (*fedipost.Config, string, error) {
-	return f.Config.RestConfig(ctx, uri, login, redirect, func(token *oauth2.Token) error {
+	return f.Config.RestConfig(ctx, uri, login, redirect, func(*oauth2.Token) error {
 		return f.Save()
 	})
 }

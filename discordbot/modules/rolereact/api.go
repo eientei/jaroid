@@ -73,7 +73,7 @@ func (mod *module) Configure(config *bot.Configuration, guild *discordgo.Guild) 
 	}
 }
 
-func (mod *module) Shutdown(config *bot.Configuration) {
+func (mod *module) Shutdown(*bot.Configuration) {
 
 }
 

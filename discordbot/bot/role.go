@@ -78,7 +78,7 @@ func (srv *server) hasMembers(roleID string) (res bool) {
 	return
 }
 
-func (bot *Bot) handlerMembersChunk(session *discordgo.Session, chunk *discordgo.GuildMembersChunk) {
+func (bot *Bot) handlerMembersChunk(_ *discordgo.Session, chunk *discordgo.GuildMembersChunk) {
 	guild := bot.guild(chunk.GuildID)
 
 	for _, m := range chunk.Members {
@@ -141,18 +141,20 @@ func (bot *Bot) memberSync(guild *server, m *discordgo.Member) {
 	}
 }
 
-func (bot *Bot) handlerMemberAdd(session *discordgo.Session, m *discordgo.GuildMemberAdd) {
+func (bot *Bot) handlerMemberAdd(_ *discordgo.Session, m *discordgo.GuildMemberAdd) {
 	bot.memberSync(bot.guild(m.GuildID), m.Member)
 }
 
-func (bot *Bot) handlerMemberRemove(session *discordgo.Session, m *discordgo.GuildMemberRemove) {
+func (bot *Bot) handlerMemberRemove(_ *discordgo.Session, m *discordgo.GuildMemberRemove) {
 	guild, ok := bot.servers[m.GuildID]
 	if !ok {
 		return
 	}
 
 	for r := range guild.members[m.User.ID] {
-		roles, ok := guild.roles[r]
+		var roles map[string]struct{}
+
+		roles, ok = guild.roles[r]
 		if ok {
 			delete(roles, m.User.ID)
 		}
@@ -161,6 +163,6 @@ func (bot *Bot) handlerMemberRemove(session *discordgo.Session, m *discordgo.Gui
 	delete(guild.members, m.User.ID)
 }
 
-func (bot *Bot) handlerMemberUpdate(session *discordgo.Session, m *discordgo.GuildMemberUpdate) {
+func (bot *Bot) handlerMemberUpdate(_ *discordgo.Session, m *discordgo.GuildMemberUpdate) {
 	bot.memberSync(bot.guild(m.GuildID), m.Member)
 }

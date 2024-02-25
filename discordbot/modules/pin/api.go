@@ -69,7 +69,7 @@ func (mod *module) Configure(config *bot.Configuration, guild *discordgo.Guild) 
 	}
 }
 
-func (mod *module) Shutdown(config *bot.Configuration) {
+func (mod *module) Shutdown(*bot.Configuration) {
 
 }
 
@@ -93,7 +93,7 @@ func (mod *module) currentPins(channelID string) ([]*discordgo.Message, error) {
 }
 
 func (mod *module) handlerChannelPinsUpdate(
-	session *discordgo.Session,
+	_ *discordgo.Session,
 	channelPinsUpdate *discordgo.ChannelPinsUpdate,
 ) {
 	mod.mutex.Lock()

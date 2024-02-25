@@ -93,7 +93,7 @@ func (mod *module) pleromaPost(ctx context.Context, task *TaskPleromaPost) error
 		base := filepath.Base(task.FilePath)
 		uri := mod.config.Config.Private.Nicovideo.Public + "/" + base
 
-		mod.updateMessage(task.GuildID, task.ChannelID, task.MessageID, "```"+status.Status+"```\n"+uri)
+		mod.updateMessage(task.GuildID, task.ChannelID, task.MessageID, backticks+status.Status+backticks+"\n"+uri)
 	} else {
 		_, err = statuses.Create(config, status)
 	}
