@@ -23,7 +23,8 @@ build:
         for GOARCH in amd64 386; do
           [ $GOOS = "darwin" ] && [ $GOARCH = "386" ] && continue || true;
           for BIN in jaroid jaroidfedi; do
-            GOOS=$GOOS GOARCh=$GOARCH go build -tags netgo -ldflags '-w -extldflags "-static"' -o ${BIN}-${CI_COMMIT_TAG}-${GOOS}-${GOARCH}${SUFFIX} ./cmd/$BIN &
+            export GOOS=$GOOS GOARCH=$GOARCH
+            go build -tags netgo -ldflags '-w -extldflags "-static"' -o ${BIN}-${CI_COMMIT_TAG}-${GOOS}-${GOARCH}${SUFFIX} ./cmd/$BIN
           done
         done
       done
