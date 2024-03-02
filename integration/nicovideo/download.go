@@ -21,8 +21,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Eyevinn/mp4ff/bits"
-	"github.com/Eyevinn/mp4ff/mp4"
 	"github.com/eientei/jaroid/mediaservice"
 )
 
@@ -235,15 +233,19 @@ func (media *APIDataMedia) Videos() []*APIDataMovieVideo {
 
 // APIDataVideo json mapping
 type APIDataVideo struct {
-	Duration DurationSeconds `json:"duration,omitempty"`
+	ID           string          `json:"id,omitempty"`
+	Title        string          `json:"title,omitempty"`
+	Description  string          `json:"description,omitempty"`
+	RegisteredAt string          `json:"registeredAt,omitempty"`
+	Duration     DurationSeconds `json:"duration,omitempty"`
 }
 
 // APIData represents subset of data-api-data video stream information required to establish a download session
 type APIData struct {
 	Created time.Time    `json:"-"`
 	Client  APIClient    `json:"client,omitempty"`
-	Media   APIDataMedia `json:"media,omitempty"`
 	Video   APIDataVideo `json:"video,omitempty"`
+	Media   APIDataMedia `json:"media,omitempty"`
 }
 
 // SessionRequestClientInfo json mapping
@@ -385,6 +387,43 @@ func (client *Client) methodPage(
 	}
 
 	return client.HTTPClient.Do(req)
+}
+
+func (client *Client) getPageBuf(ctx context.Context, url string, buf *[]byte) error {
+	resp, err := client.methodPage(ctx, url, http.MethodGet, nil, nil)
+	if err != nil {
+		return err
+	}
+
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	*buf = (*buf)[0:]
+
+	if resp.ContentLength != 0 {
+		if int64(len(*buf)) < resp.ContentLength {
+			*buf = append(*buf, make([]byte, resp.ContentLength)...)
+		}
+
+		_, err = io.ReadFull(resp.Body, *buf)
+		if err != nil {
+			return err
+		}
+
+		*buf = (*buf)[:resp.ContentLength]
+
+		return nil
+	}
+
+	bs, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+
+	*buf = append(*buf, bs...)
+
+	return nil
 }
 
 func (client *Client) getPage(ctx context.Context, url string) ([]byte, error) {
@@ -921,12 +960,12 @@ const (
 )
 
 type streamChunk struct {
+	data   *[]byte
 	err    error
 	done   chan struct{}
 	block  cipher.Block
 	url    string
 	iv     []byte
-	data   []byte
 	stream contentStream
 	idx    int
 	init   bool
@@ -935,6 +974,32 @@ type streamChunk struct {
 type contentChunk struct {
 	audio *streamChunk
 	video *streamChunk
+}
+
+func (chunk *contentChunk) download(work chan *streamChunk, audiodata, videodata *[]byte) (datas [][]byte, err error) {
+	work <- chunk.audio
+	work <- chunk.video
+
+	<-chunk.audio.done
+	<-chunk.video.done
+
+	if chunk.audio.err != nil {
+		return nil, chunk.audio.err
+	}
+
+	if chunk.video.err != nil {
+		return nil, chunk.video.err
+	}
+
+	if len(*videodata) != 0 {
+		datas = append(datas, *videodata)
+	}
+
+	if len(*audiodata) != 0 {
+		datas = append(datas, *audiodata)
+	}
+
+	return
 }
 
 var (
@@ -1033,122 +1098,6 @@ func (client *Client) parseStreamM3U8(
 	err = client.parseM3U8AES(ctx, contents, ivs, key)
 
 	return
-}
-
-func combineInitSegments(files [][]byte, w io.Writer) (err error) {
-	var combinedInit *mp4.InitSegment
-
-	for i, data := range files {
-		var f *mp4.File
-
-		f, err = mp4.DecodeFileSR(bits.NewFixedSliceReader(data))
-		if err != nil {
-			err = fmt.Errorf("failed to decode init segment: %w", err)
-
-			return
-		}
-
-		init := f.Init
-		if len(init.Moov.Traks) != 1 {
-			err = fmt.Errorf("expected exactly one track per init file")
-
-			return
-		}
-
-		init.Moov.Trak.Tkhd.TrackID = uint32(i + 1)
-		if init.Moov.Mvex != nil && init.Moov.Mvex.Trex != nil {
-			init.Moov.Mvex.Trex.TrackID = uint32(i + 1)
-		}
-
-		if i == 0 {
-			combinedInit = init
-
-			continue
-		}
-
-		combinedInit.Moov.AddChild(init.Moov.Trak)
-
-		if init.Moov.Mvex != nil {
-			if init.Moov.Mvex.Trex != nil {
-				combinedInit.Moov.Mvex.AddChild(init.Moov.Mvex.Trex)
-			}
-
-			if init.Moov.Mvex.Mehd != nil {
-				combinedInit.Moov.Mvex.AddChild(init.Moov.Mvex.Mehd)
-			}
-		}
-	}
-
-	return combinedInit.Encode(w)
-}
-
-func combineMediaSegments(files [][]byte, w io.WriteCloser) error {
-	var idx []uint32
-
-	for i := 0; i < len(files); i++ {
-		idx = append(idx, uint32(i+1))
-	}
-
-	var (
-		combinedSeg *mp4.MediaSegment
-		outFrag     *mp4.Fragment
-	)
-
-	for i, data := range files {
-		f, err := mp4.DecodeFileSR(bits.NewFixedSliceReader(data))
-		if err != nil {
-			return fmt.Errorf("failed to decode media segment: %w", err)
-		}
-
-		if len(f.Segments) != 1 {
-			return fmt.Errorf("expected exactly one media segment per file")
-		}
-
-		seg := f.Segments[0]
-
-		if i == 0 {
-			if seg.Styp != nil {
-				combinedSeg = mp4.NewMediaSegmentWithStyp(seg.Styp)
-			} else {
-				combinedSeg = mp4.NewMediaSegmentWithoutStyp()
-			}
-		}
-
-		if len(seg.Fragments) != 1 {
-			return fmt.Errorf("expected exactly one fragment per media segment")
-		}
-
-		frag := seg.Fragments[0]
-
-		if len(frag.Moof.Trafs) != 1 {
-			return fmt.Errorf("expected exactly one traf per fragment")
-		}
-
-		if i == 0 {
-			seqNr := frag.Moof.Mfhd.SequenceNumber
-
-			outFrag, err = mp4.CreateMultiTrackFragment(seqNr, idx)
-			if err != nil {
-				return fmt.Errorf("failed to create fragment: %w", err)
-			}
-
-			combinedSeg.AddFragment(outFrag)
-		}
-
-		fss, err := frag.GetFullSamples(nil)
-		if err != nil {
-			return fmt.Errorf("failed to get full samples: %w", err)
-		}
-
-		for _, fs := range fss {
-			err = outFrag.AddFullSampleToTrack(fs, uint32(i+1))
-			if err != nil {
-				return err
-			}
-		}
-	}
-
-	return combinedSeg.Encode(w)
 }
 
 func (client *Client) downloadDMSExtractPlaylistsParseM3U8(
@@ -1253,7 +1202,7 @@ func (client *Client) downloadDMSWorker(ctx context.Context, work chan *streamCh
 				return
 			}
 
-			respbs, err := client.getPage(ctx, stream.url)
+			err := client.getPageBuf(ctx, stream.url, stream.data)
 			if err != nil {
 				stream.err = err
 
@@ -1264,14 +1213,12 @@ func (client *Client) downloadDMSWorker(ctx context.Context, work chan *streamCh
 
 			if stream.block != nil {
 				cbc := cipher.NewCBCDecrypter(stream.block, stream.iv)
-				cbc.CryptBlocks(respbs, respbs)
+				cbc.CryptBlocks(*stream.data, *stream.data)
 
-				length := len(respbs)
-				unpadding := int(respbs[length-1])
-				respbs = respbs[:(length - unpadding)]
+				length := len(*stream.data)
+				unpadding := int((*stream.data)[length-1])
+				*stream.data = (*stream.data)[:(length - unpadding)]
 			}
-
-			stream.data = respbs
 
 			close(stream.done)
 		case <-ctx.Done():
@@ -1280,7 +1227,7 @@ func (client *Client) downloadDMSWorker(ctx context.Context, work chan *streamCh
 	}
 }
 
-func (client *Client) downloadDMSResumeIndex(f *os.File, idxbs []byte, magic uint64) (idx int) {
+func (client *Client) downloadDMSResumeIndex(f *os.File, idxbs []byte, magic uint32) (idx int) {
 	siz, err := f.Seek(0, io.SeekEnd)
 	if err != nil {
 		return
@@ -1297,18 +1244,16 @@ func (client *Client) downloadDMSResumeIndex(f *os.File, idxbs []byte, magic uin
 			return
 		}
 
-		valid := binary.BigEndian.Uint64(idxbs[:len(idxbs)-8])
-		if valid == magic {
-			idx = int(binary.BigEndian.Uint64(idxbs[len(idxbs)-8:])) + 1
-		} else {
+		if binary.BigEndian.Uint32(idxbs[0:4]) != uint32(len(idxbs)) ||
+			binary.BigEndian.Uint32(idxbs[4:8]) != magic {
 			_, err = f.Seek(0, io.SeekStart)
 			if err != nil {
 				return
 			}
+		} else {
+			idx = int(binary.BigEndian.Uint64(idxbs[8:16])) + 1
 		}
 	}
-
-	binary.BigEndian.PutUint64(idxbs[:8], magic)
 
 	return
 }
@@ -1317,10 +1262,18 @@ func (client *Client) downloadDMS(
 	ctx context.Context,
 	f *os.File,
 	data *APIData,
-	aformatid, vformatid string,
+	aformatid, vformatid, outpath string,
 	dur time.Duration,
 	reporter mediaservice.Reporter,
 ) (err error) {
+	defer func() {
+		_ = f.Close()
+
+		if err == nil {
+			_ = os.Remove(f.Name())
+		}
+	}()
+
 	var contentChunks []*contentChunk
 
 	var audioChunks, videoChunks []*streamChunk
@@ -1369,11 +1322,14 @@ func (client *Client) downloadDMS(
 
 	off := int64(len(idxbs))
 
-	const jaroid = 0x00006a61726f6964
+	const jaroid = 0x31393139
 
 	idx := client.downloadDMSResumeIndex(f, idxbs, jaroid)
 
-	var writes bool
+	binary.BigEndian.PutUint32(idxbs[0:4], uint32(len(idxbs)))
+	binary.BigEndian.PutUint32(idxbs[4:8], uint32(jaroid))
+
+	audiodata, videodata := make([]byte, 0), make([]byte, 0)
 
 	for ; idx < len(contentChunks); idx++ {
 		chunk := contentChunks[idx]
@@ -1388,25 +1344,23 @@ func (client *Client) downloadDMS(
 		chunk.audio.done = make(chan struct{})
 		chunk.video.done = make(chan struct{})
 
-		work <- chunk.audio
-		work <- chunk.video
+		chunk.audio.data, chunk.video.data = &audiodata, &videodata
 
-		<-chunk.audio.done
-		<-chunk.video.done
+		var datas [][]byte
 
-		if chunk.audio.err != nil {
-			return err
-		}
-
-		if chunk.video.err != nil {
+		datas, err = chunk.download(work, &audiodata, &videodata)
+		if err != nil {
 			return err
 		}
 
 		if chunk.audio.init {
-			err = combineInitSegments([][]byte{chunk.audio.data, chunk.video.data}, f)
+			err = combineInitSegments(datas, f)
 		} else {
-			err = combineMediaSegments([][]byte{chunk.audio.data, chunk.video.data}, f)
+			err = combineMediaSegments(datas, f)
 		}
+
+		audiodata = audiodata[:0]
+		videodata = videodata[:0]
 
 		if err != nil {
 			return err
@@ -1418,22 +1372,32 @@ func (client *Client) downloadDMS(
 		if err != nil {
 			return err
 		}
-
-		writes = true
 	}
 
-	if writes {
-		var pos int64
+	_, err = f.Seek(0, io.SeekStart)
+	if err != nil {
+		return err
+	}
 
-		pos, err = f.Seek(-off, io.SeekEnd)
-		if err != nil {
-			return err
-		}
+	of, err := os.OpenFile(outpath, os.O_CREATE|os.O_TRUNC|os.O_RDWR, 0644)
+	if err != nil {
+		return
+	}
 
-		err = f.Truncate(pos)
-		if err != nil {
-			return err
-		}
+	defer func() {
+		_ = of.Close()
+	}()
+
+	metadata := map[string]string{
+		"\xA9too": "https://www.nicovideo.jp/watch/" + data.Video.ID,
+		"\xA9nam": data.Video.Title,
+		"\xA9cmt": data.Video.Description,
+		"\xA9day": data.Video.RegisteredAt,
+	}
+
+	err = DefragmentMP4(f, of, metadata)
+	if err != nil {
+		return
 	}
 
 	return nil
@@ -1443,9 +1407,20 @@ func (client *Client) downloadDMC(
 	ctx context.Context,
 	f *os.File,
 	data *APIData,
-	aformatid, vformatid string,
+	aformatid, vformatid, outpath string,
+	reuse bool,
 	reporter mediaservice.Reporter,
 ) (err error) {
+	defer func() {
+		_ = f.Close()
+
+		if err != nil || !reuse {
+			return
+		}
+
+		_ = os.Rename(f.Name(), outpath)
+	}()
+
 	var (
 		session  APIDataMovieSession
 		sess     SessionResponse
@@ -1536,16 +1511,6 @@ func (client *Client) SaveFormat(
 		return "", err
 	}
 
-	defer func() {
-		_ = f.Close()
-
-		if err != nil || !reuse {
-			return
-		}
-
-		_ = os.Rename(tempname, outpath)
-	}()
-
 	err = client.openCopyFile(f, outpath, fmtname, reuse)
 	if err != nil {
 		return "", err
@@ -1557,9 +1522,9 @@ func (client *Client) SaveFormat(
 
 	switch {
 	case data.Media.Domand.AccessRightKey != "":
-		err = client.downloadDMS(cctx, f, data, aformatid, vformatid, dur, reporter)
+		err = client.downloadDMS(cctx, f, data, aformatid, vformatid, outpath, dur, reporter)
 	case len(data.Media.Delivery.Movie.Session.URLS) > 0:
-		err = client.downloadDMC(cctx, f, data, aformatid, vformatid, reporter)
+		err = client.downloadDMC(cctx, f, data, aformatid, vformatid, outpath, reuse, reporter)
 	default:
 		err = fmt.Errorf("unknown content delivery method")
 	}
