@@ -389,23 +389,28 @@ type defragmenter struct {
 func (defrag *defragmenter) minMax(
 	tracksamples [][]sampleoffset,
 ) (maxdur time.Duration, minchunk uint32, present bool) {
-	for trackid := range tracksamples {
-		if len(tracksamples[trackid]) == 0 {
+	var basedur time.Duration
+
+	for trackid, samples := range tracksamples {
+		if len(samples) == 0 {
 			continue
 		}
 
 		present = true
 
-		dur := defrag.durations[trackid] + time.Duration(tracksamples[trackid][0].Dur)*defrag.timescales[trackid]
+		dur := time.Duration(samples[0].Dur) * defrag.timescales[trackid]
 
-		if dur > defrag.durations[trackid] {
+		if dur > maxdur {
 			maxdur = dur
+			basedur = defrag.durations[trackid]
 		}
 
 		if minchunk == 0 || minchunk > defrag.chunkids[trackid] {
 			minchunk = defrag.chunkids[trackid]
 		}
 	}
+
+	maxdur += basedur
 
 	return
 }
@@ -415,21 +420,21 @@ func (defrag *defragmenter) track(
 	trackid int,
 	maxdur time.Duration,
 ) (locoffset, samplescount uint32) {
-	for idx, s := range tracksamples[trackid] {
-		dur := time.Duration(s.Dur) * defrag.timescales[trackid]
+	for idx, sample := range tracksamples[trackid] {
+		dur := time.Duration(sample.Dur) * defrag.timescales[trackid]
 
 		lasttarget := len(defrag.target) - 1
 
-		if len(defrag.target) > 0 && defrag.target[lasttarget].Offset+defrag.target[lasttarget].Length == s.Offset {
-			defrag.target[lasttarget].Length += int64(s.Size)
+		if lasttarget >= 0 && defrag.target[lasttarget].Offset+defrag.target[lasttarget].Length == sample.Offset {
+			defrag.target[lasttarget].Length += int64(sample.Size)
 		} else {
 			defrag.target = append(defrag.target, copyrange{
-				Offset: s.Offset,
-				Length: int64(s.Size),
+				Offset: sample.Offset,
+				Length: int64(sample.Size),
 			})
 		}
 
-		locoffset += s.Size
+		locoffset += sample.Size
 		defrag.durations[trackid] += dur
 		samplescount++
 
