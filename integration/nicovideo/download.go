@@ -386,7 +386,28 @@ func (client *Client) methodPage(
 		}
 	}
 
-	return client.HTTPClient.Do(req)
+	resp, err := client.HTTPClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.StatusCode/100 != 2 {
+		defer func() {
+			_ = resp.Body.Close()
+		}()
+
+		l, _ := strconv.Atoi(resp.Header.Get("Content-Language"))
+
+		if l < 2048 {
+			bs, _ := io.ReadAll(resp.Body)
+
+			return nil, fmt.Errorf("http response %d: %s", resp.StatusCode, string(bs))
+		}
+
+		return nil, fmt.Errorf("http response %d", resp.StatusCode)
+	}
+
+	return resp, nil
 }
 
 func (client *Client) getPageBuf(ctx context.Context, url string, buf *[]byte) error {
@@ -1389,7 +1410,7 @@ func (client *Client) downloadDMS(
 	}()
 
 	metadata := map[string]string{
-		"\xA9too": "https://www.nicovideo.jp/watch/" + data.Video.ID,
+		"cprt":    "https://www.nicovideo.jp/watch/" + data.Video.ID,
 		"\xA9nam": data.Video.Title,
 		"\xA9cmt": data.Video.Description,
 		"\xA9day": data.Video.RegisteredAt,

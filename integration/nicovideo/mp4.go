@@ -381,14 +381,18 @@ func defragmentMP4Samples(
 type defragmenter struct {
 	durations  []time.Duration
 	timescales []time.Duration
-	chunkids   []uint32
 	target     []copyrange
+	incomplete [][]copyrange
+	complete   [][]copyrange
+	chunkid    uint32
 	offset     uint32
+	buffering  bool
+	init       bool
 }
 
 func (defrag *defragmenter) minMax(
 	tracksamples [][]sampleoffset,
-) (maxdur time.Duration, minchunk uint32, present bool) {
+) (maxdur time.Duration, present bool) {
 	var basedur time.Duration
 
 	for trackid, samples := range tracksamples {
@@ -404,10 +408,6 @@ func (defrag *defragmenter) minMax(
 			maxdur = dur
 			basedur = defrag.durations[trackid]
 		}
-
-		if minchunk == 0 || minchunk > defrag.chunkids[trackid] {
-			minchunk = defrag.chunkids[trackid]
-		}
 	}
 
 	maxdur += basedur
@@ -419,26 +419,18 @@ func (defrag *defragmenter) track(
 	tracksamples [][]sampleoffset,
 	trackid int,
 	maxdur time.Duration,
-) (locoffset, samplescount uint32) {
+) (targets []copyrange) {
 	for idx, sample := range tracksamples[trackid] {
 		dur := time.Duration(sample.Dur) * defrag.timescales[trackid]
 
-		lasttarget := len(defrag.target) - 1
+		targets = append(targets, copyrange{
+			Offset: sample.Offset,
+			Length: int64(sample.Size),
+		})
 
-		if lasttarget >= 0 && defrag.target[lasttarget].Offset+defrag.target[lasttarget].Length == sample.Offset {
-			defrag.target[lasttarget].Length += int64(sample.Size)
-		} else {
-			defrag.target = append(defrag.target, copyrange{
-				Offset: sample.Offset,
-				Length: int64(sample.Size),
-			})
-		}
-
-		locoffset += sample.Size
 		defrag.durations[trackid] += dur
-		samplescount++
 
-		if defrag.durations[trackid] >= maxdur {
+		if defrag.durations[trackid] >= maxdur || idx+1 == len(tracksamples[trackid]) {
 			tracksamples[trackid] = tracksamples[trackid][idx+1:]
 
 			break
@@ -448,39 +440,104 @@ func (defrag *defragmenter) track(
 	return
 }
 
-func (defrag *defragmenter) next(tracksamples [][]sampleoffset, traks []*mp4.TrakBox) (err error) {
+func (defrag *defragmenter) append(chunk [][]copyrange, traks []*mp4.TrakBox) (err error) {
+	for trackid, samples := range chunk {
+		var locoffset uint32
+
+		for _, sample := range samples {
+			lasttarget := len(defrag.target) - 1
+
+			if lasttarget >= 0 && defrag.target[lasttarget].Offset+defrag.target[lasttarget].Length == sample.Offset {
+				defrag.target[lasttarget].Length += sample.Length
+			} else {
+				defrag.target = append(defrag.target, sample)
+			}
+
+			locoffset += uint32(sample.Length)
+		}
+
+		samplescount := uint32(len(samples))
+
+		stsc := traks[trackid].Mdia.Minf.Stbl.Stsc
+
+		if len(stsc.Entries) == 0 || stsc.Entries[len(stsc.Entries)-1].SamplesPerChunk != samplescount {
+			err = stsc.AddEntry(defrag.chunkid, samplescount, 1)
+			if err != nil {
+				return
+			}
+		}
+
+		stco := traks[trackid].Mdia.Minf.Stbl.Stco
+
+		stco.ChunkOffset = append(stco.ChunkOffset, defrag.offset)
+
+		defrag.offset += locoffset
+
+		chunk[trackid] = chunk[trackid][:0]
+	}
+
+	defrag.chunkid++
+
+	return
+}
+
+func (defrag *defragmenter) next(tracksamples [][]sampleoffset, traks []*mp4.TrakBox, last bool) (err error) {
+	var available int
+
 	for {
-		maxdur, minchunk, present := defrag.minMax(tracksamples)
+		maxdur, present := defrag.minMax(tracksamples)
 		if !present {
 			break
 		}
 
+		available = 0
+
 		for trackid := range tracksamples {
-			if minchunk < defrag.chunkids[trackid] {
+			targets := defrag.track(tracksamples, trackid, maxdur)
+
+			if len(targets) == 0 {
+				defrag.buffering = true
+
 				continue
 			}
 
-			locoffset, samplescount := defrag.track(tracksamples, trackid, maxdur)
-			if samplescount == 0 {
-				continue
-			}
+			defrag.incomplete[trackid] = append(defrag.incomplete[trackid], targets...)
 
-			stsc := traks[trackid].Mdia.Minf.Stbl.Stsc
+			available++
+		}
 
-			if len(stsc.Entries) == 0 || stsc.Entries[len(stsc.Entries)-1].SamplesPerChunk != samplescount {
-				err = stsc.AddEntry(defrag.chunkids[trackid], samplescount, 1)
+		if available == len(tracksamples) {
+			defrag.buffering = false
+
+			if defrag.init {
+				err = defrag.append(defrag.complete, traks)
 				if err != nil {
-					return err
+					return
 				}
+			} else {
+				defrag.init = true
 			}
 
-			stco := traks[trackid].Mdia.Minf.Stbl.Stco
+			for trackid := range tracksamples {
+				defrag.complete[trackid] = append(defrag.complete[trackid][:0], defrag.incomplete[trackid]...)
+				defrag.incomplete[trackid] = defrag.incomplete[trackid][:0]
+			}
+		}
+	}
 
-			stco.ChunkOffset = append(stco.ChunkOffset, defrag.offset)
+	finalize := defrag.buffering && last
 
-			defrag.offset += locoffset
+	if finalize {
+		for trackid := range tracksamples {
+			defrag.complete[trackid] = append(defrag.complete[trackid], defrag.incomplete[trackid]...)
+			defrag.incomplete[trackid] = defrag.incomplete[trackid][:0]
+		}
+	}
 
-			defrag.chunkids[trackid]++
+	if available == len(tracksamples) || finalize {
+		err = defrag.append(defrag.complete, traks)
+		if err != nil {
+			return
 		}
 	}
 
@@ -496,28 +553,22 @@ func defragmentMP4(in *mp4.File, metadata map[string]string) (out *mp4.File, tar
 		return
 	}
 
-	if len(moov.Trak.Mdia.Minf.Stbl.Stts.SampleCount) == 0 {
-		moov.Trak.Mdia.Minf.Stbl.Stts.SampleCount = []uint32{0}
-
-		out.AddChild(moov, 0)
-
-		moov.Trak.Mdia.Minf.Stbl.Stts.SampleCount = moov.Trak.Mdia.Minf.Stbl.Stts.SampleCount[:0]
-	} else {
-		out.AddChild(moov, 0)
-	}
+	out.Moov = moov
+	out.Children = append(out.Children, moov)
 
 	out.AddChild(&mp4.MdatBox{}, 0)
 
 	defrag := defragmenter{
 		durations:  make([]time.Duration, len(moov.Traks)),
 		timescales: make([]time.Duration, len(moov.Traks)),
-		chunkids:   make([]uint32, len(moov.Traks)),
+		chunkid:    1,
 		target:     nil,
+		complete:   make([][]copyrange, len(moov.Traks)),
+		incomplete: make([][]copyrange, len(moov.Traks)),
 		offset:     0,
 	}
 
 	for trakid := range moov.Traks {
-		defrag.chunkids[trakid] = 1
 		defrag.timescales[trakid] = time.Second / time.Duration(moov.Traks[trakid].Mdia.Mdhd.Timescale)
 	}
 
@@ -525,8 +576,8 @@ func defragmentMP4(in *mp4.File, metadata map[string]string) (out *mp4.File, tar
 
 	var totalsamples uint32
 
-	for _, segm := range in.Segments {
-		for _, frag := range segm.Fragments {
+	for sidx, segm := range in.Segments {
+		for fidx, frag := range segm.Fragments {
 			for trackid, traf := range frag.Moof.Trafs {
 				trak := moov.Traks[trackid]
 				trex := in.Moov.Mvex.Trexs[trackid]
@@ -550,7 +601,7 @@ func defragmentMP4(in *mp4.File, metadata map[string]string) (out *mp4.File, tar
 				}
 			}
 
-			err = defrag.next(tracksamples, moov.Traks)
+			err = defrag.next(tracksamples, moov.Traks, sidx+1 == len(in.Segments) && fidx+1 == len(segm.Fragments))
 			if err != nil {
 				return
 			}
