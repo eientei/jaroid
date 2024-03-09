@@ -346,9 +346,10 @@ func defragmentMP4Samples(
 
 		for _, s := range trun.Samples {
 			idx := len(trak.Mdia.Minf.Stbl.Stts.SampleTimeDelta) - 1
+
 			if idx < 0 || trak.Mdia.Minf.Stbl.Stts.SampleTimeDelta[idx] != s.Dur {
-				trak.Mdia.Minf.Stbl.Stts.SampleCount = []uint32{1}
-				trak.Mdia.Minf.Stbl.Stts.SampleTimeDelta = []uint32{s.Dur}
+				trak.Mdia.Minf.Stbl.Stts.SampleCount = append(trak.Mdia.Minf.Stbl.Stts.SampleCount, 1)
+				trak.Mdia.Minf.Stbl.Stts.SampleTimeDelta = append(trak.Mdia.Minf.Stbl.Stts.SampleTimeDelta, s.Dur)
 			} else {
 				trak.Mdia.Minf.Stbl.Stts.SampleCount[idx]++
 			}
@@ -539,6 +540,8 @@ func (defrag *defragmenter) next(tracksamples [][]sampleoffset, traks []*mp4.Tra
 		if err != nil {
 			return
 		}
+
+		defrag.init = false
 	}
 
 	return
