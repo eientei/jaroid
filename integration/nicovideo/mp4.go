@@ -118,33 +118,9 @@ func combineMediaSegments(files [][]byte, w io.WriteCloser) error {
 			outseg.AddSidx(sidx)
 		}
 
-		for _, infrag := range inseg.Fragments {
-			if len(infrag.Moof.Trafs) != 1 {
-				return fmt.Errorf("expected exactly one traf per fragment")
-			}
-
-			if i == 0 {
-				seqNr := infrag.Moof.Mfhd.SequenceNumber
-
-				outfrag, err = mp4.CreateMultiTrackFragment(seqNr, idx)
-				if err != nil {
-					return fmt.Errorf("failed to create fragment: %w", err)
-				}
-
-				outseg.AddFragment(outfrag)
-			}
-
-			fss, err := infrag.GetFullSamples(nil)
-			if err != nil {
-				return fmt.Errorf("failed to get full samples: %w", err)
-			}
-
-			for _, fs := range fss {
-				err = outfrag.AddFullSampleToTrack(fs, uint32(i+1))
-				if err != nil {
-					return err
-				}
-			}
+		err = populateSegment(outseg, &outfrag, i, inseg, idx)
+		if err != nil {
+			return err
 		}
 	}
 
@@ -153,6 +129,47 @@ func combineMediaSegments(files [][]byte, w io.WriteCloser) error {
 	outseg.EncOptimize = mp4.OptimizeTrun
 
 	return outseg.Encode(w)
+}
+
+func populateSegment(
+	outseg *mp4.MediaSegment,
+	outfrag **mp4.Fragment,
+	i int,
+	inseg *mp4.MediaSegment,
+	idx []uint32,
+) (err error) {
+	for fi, infrag := range inseg.Fragments {
+		if len(infrag.Moof.Trafs) != 1 {
+			return fmt.Errorf("expected exactly one traf per fragment")
+		}
+
+		if i == 0 && fi == 0 {
+			seqNr := infrag.Moof.Mfhd.SequenceNumber
+
+			*outfrag, err = mp4.CreateMultiTrackFragment(seqNr, idx)
+			if err != nil {
+				return fmt.Errorf("failed to create fragment: %w", err)
+			}
+
+			outseg.AddFragment(*outfrag)
+		}
+
+		var fss []mp4.FullSample
+
+		fss, err = infrag.GetFullSamples(nil)
+		if err != nil {
+			return fmt.Errorf("failed to get full samples: %w", err)
+		}
+
+		for _, fs := range fss {
+			err = (*outfrag).AddFullSampleToTrack(fs, uint32(i+1))
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
 
 type copyrange struct {
