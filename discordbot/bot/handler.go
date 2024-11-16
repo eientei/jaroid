@@ -1,6 +1,8 @@
 package bot
 
 import (
+	"time"
+
 	"github.com/bwmarrin/discordgo"
 )
 
@@ -24,6 +26,11 @@ func (bot *Bot) handlerMessageUpdate(session *discordgo.Session, messageUpdate *
 	}
 
 	guild := bot.guild(messageUpdate.GuildID)
+
+	if messageUpdate.Message.EditedTimestamp == nil {
+		t := time.Now()
+		messageUpdate.Message.EditedTimestamp = &t
+	}
 
 	_ = bot.Router.Dispatch(session, guild.prefixes, session.State.User.ID, messageUpdate.Message)
 }

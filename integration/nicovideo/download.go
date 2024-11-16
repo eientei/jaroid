@@ -25,7 +25,7 @@ import (
 )
 
 var (
-	dataAPIDataRegex = regexp.MustCompile(`data-api-data="([^"]+)"`)
+	dataAPIDataRegex = regexp.MustCompile(`name="server-response"\s+content="([^"]+)"`)
 	otpRegexp        = regexp.MustCompile(`action="(/mfa[^"]*)"`)
 )
 
@@ -391,22 +391,6 @@ func (client *Client) methodPage(
 		return nil, err
 	}
 
-	if resp.StatusCode/100 != 2 {
-		defer func() {
-			_ = resp.Body.Close()
-		}()
-
-		l, _ := strconv.Atoi(resp.Header.Get("Content-Language"))
-
-		if l < 2048 {
-			bs, _ := io.ReadAll(resp.Body)
-
-			return nil, fmt.Errorf("http response %d: %s", resp.StatusCode, string(bs))
-		}
-
-		return nil, fmt.Errorf("http response %d", resp.StatusCode)
-	}
-
 	return resp, nil
 }
 
@@ -473,12 +457,20 @@ func (client *Client) postPage(ctx context.Context, url string, body io.Reader, 
 	return io.ReadAll(resp.Body)
 }
 
+// CacheAuth forcibly caches authentication
+func (client *Client) CacheAuth(reporter mediaservice.Reporter) error {
+	_, err := client.auth(reporter)
+
+	return err
+}
+
 func (client *Client) fetchInitPage(ctx context.Context, url string, reporter mediaservice.Reporter) ([]byte, error) {
 	reporter.Submit("Downloading video metadata...", false)
 
 	bs, err := client.getPage(ctx, url)
 
-	anonymous := strings.Contains(string(bs), "'not_login'") || strings.Contains(string(bs), "NEED_LOGIN")
+	anonymous := strings.Contains(string(bs), "'not_login'") ||
+		strings.Contains(string(bs), "NEED_LOGIN")
 
 	if anonymous && client.Auth != nil && !client.Auth.invalid {
 		var succ bool
@@ -623,16 +615,20 @@ func (client *Client) fetchAPIData(ctx context.Context, url string, reporter med
 		return nil, fmt.Errorf("no api data")
 	}
 
-	data := &APIData{}
+	var resdata struct {
+		Data struct {
+			Response APIData `json:"response"`
+		} `json:"data"`
+	}
 
-	err = json.Unmarshal(([]byte)(html.UnescapeString(parts[0][1])), data)
+	err = json.Unmarshal(([]byte)(html.UnescapeString(parts[0][1])), &resdata)
 	if err != nil {
 		return nil, err
 	}
 
-	data.Created = time.Now()
+	resdata.Data.Response.Created = time.Now()
 
-	return data, nil
+	return &resdata.Data.Response, nil
 }
 
 // ListFormats returns available media format list for api response

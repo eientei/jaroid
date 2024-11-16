@@ -33,8 +33,9 @@ var opts struct {
 	Acccount          struct {
 		Code string `long:"code" description:"OAuth2 code"`
 	} `command:"account"`
-	Quiet   bool `short:"q" long:"quiet" description:"Suppress extra output"`
-	Default bool `long:"default" description:"Set specifid url/login/args as default"`
+	NicovideoLogin bool `short:"n" long:"nicologin" description:"Nicovideo login and exit"`
+	Quiet          bool `short:"q" long:"quiet" description:"Suppress extra output"`
+	Default        bool `long:"default" description:"Set specifid url/login/args as default"`
 }
 
 type resp struct {
@@ -54,6 +55,7 @@ type binconfig struct {
 	post       bool
 	preview    bool
 	list       bool
+	nicologin  bool
 }
 
 func parseRest(p *flags.Parser, rest []string, c *binconfig) error {
@@ -76,7 +78,7 @@ func parseRest(p *flags.Parser, rest []string, c *binconfig) error {
 		}
 	}
 
-	if opts.Default || c.command != "" {
+	if opts.Default || c.command != "" || c.nicologin {
 		return nil
 	}
 
@@ -122,6 +124,8 @@ func parseConfig() (c binconfig) {
 		c.command = p.Active.Name
 	}
 
+	c.nicologin = opts.NicovideoLogin
+
 	if err == nil {
 		err = parseRest(p, rest, &c)
 	}
@@ -133,7 +137,7 @@ func parseConfig() (c binconfig) {
 		}
 	}
 
-	if err == nil && c.videourl == "" && !opts.Default && p.Active == nil {
+	if err == nil && c.videourl == "" && !opts.Default && p.Active == nil && !opts.NicovideoLogin {
 		p.WriteHelp(os.Stdout)
 
 		err = &flags.Error{
@@ -392,6 +396,17 @@ func main() {
 	fedipost, err := app.New(configpath, overrides)
 	if err != nil {
 		panic(err)
+	}
+
+	if c.nicologin {
+		reporter := mediaservice.NewReporter(0, 16, os.Stdin)
+
+		err = fedipost.Client.CacheAuth(reporter)
+		if err != nil {
+			panic(err)
+		}
+
+		os.Exit(0)
 	}
 
 	ctx := context.Background()

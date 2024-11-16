@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	baseVideoURI = "https://api.search.nicovideo.jp/api/v2/snapshot/video/contents/search"
+	baseVideoURI = "https://snapshot.search.nicovideo.jp/api/v2/snapshot/video/contents/search"
 	thumbURI     = "https://ext.nicovideo.jp/api/getthumbinfo/"
 	loginURI     = "https://account.nicovideo.jp/api/v1/login"
 )

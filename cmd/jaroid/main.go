@@ -24,6 +24,7 @@ import (
 	"github.com/eientei/jaroid/discordbot/modules/reply"
 	"github.com/eientei/jaroid/discordbot/modules/rolereact"
 	"github.com/eientei/jaroid/integration/nicovideo"
+	"github.com/eientei/jaroid/mediaservice"
 	"github.com/eientei/jaroid/util/httputil/middleware"
 	redis "github.com/go-redis/redis/v7"
 	"github.com/sirupsen/logrus"
@@ -55,6 +56,7 @@ func main() {
 	log := logrus.New()
 
 	configPath := flag.String("c", "config.yml", "Configuration file")
+	login := flag.Bool("l", false, "cache login cookies")
 
 	flag.Parse()
 
@@ -147,6 +149,17 @@ func main() {
 
 	if err != nil {
 		log.Fatal(err)
+	}
+
+	if *login {
+		reporter := mediaservice.NewReporter(0, 16, os.Stdin)
+
+		err = b.Nicovideo.CacheAuth(reporter)
+		if err != nil {
+			panic(err)
+		}
+
+		os.Exit(0)
 	}
 
 	err = b.Serve()

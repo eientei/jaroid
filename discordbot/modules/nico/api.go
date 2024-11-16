@@ -289,6 +289,10 @@ func (mod *module) executeFeed(ctx context.Context, feed *feed) error {
 }
 
 func (mod *module) commandDownload(ctx *router.Context) error {
+	if ctx.Message.EditedTimestamp != nil {
+		return nil
+	}
+
 	if len(ctx.Args) < 2 {
 		return ErrInvalidArgumentNumber
 	}
